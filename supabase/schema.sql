@@ -25,6 +25,7 @@ create table if not exists public.profiles (
   constraint profiles_chat_color_format check (chat_color ~ '^#[0-9A-Fa-f]{6}$')
 );
 
+alter table public.profiles add column if not exists avatar_url text;
 alter table public.profiles add column if not exists chat_color text not null default '#e31b2f';
 
 do $$
@@ -496,6 +497,11 @@ using (sender_id = auth.uid() or public.is_staff());
 do $$
 begin
   begin
+    alter publication supabase_realtime add table public.profiles;
+  exception when duplicate_object or undefined_object then null;
+  end;
+
+  begin
     alter publication supabase_realtime add table public.posts;
   exception when duplicate_object or undefined_object then null;
   end;
@@ -545,6 +551,41 @@ drop policy if exists post_images_owner_delete on storage.objects;
 create policy post_images_owner_delete on storage.objects
 for delete to authenticated
 using (bucket_id = 'post-images' and owner = auth.uid());
+
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'profile-images',
+  'profile-images',
+  true,
+  3145728,
+  array['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+)
+on conflict (id) do update
+set public = true,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists profile_images_public_read on storage.objects;
+create policy profile_images_public_read on storage.objects
+for select
+using (bucket_id = 'profile-images');
+
+drop policy if exists profile_images_owner_upload on storage.objects;
+create policy profile_images_owner_upload on storage.objects
+for insert to authenticated
+with check (bucket_id = 'profile-images' and owner = auth.uid());
+
+drop policy if exists profile_images_owner_update on storage.objects;
+create policy profile_images_owner_update on storage.objects
+for update to authenticated
+using (bucket_id = 'profile-images' and owner = auth.uid())
+with check (bucket_id = 'profile-images' and owner = auth.uid());
+
+drop policy if exists profile_images_owner_delete on storage.objects;
+create policy profile_images_owner_delete on storage.objects
+for delete to authenticated
+using (bucket_id = 'profile-images' and owner = auth.uid());
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (

@@ -7,11 +7,19 @@ import './styles.css';
 
 const BUCKET = 'post-images';
 const SITE_ASSETS_BUCKET = 'site-assets';
+const PROFILE_IMAGES_BUCKET = 'profile-images';
 const APP_NAME = 'Thrylos Agora';
 const BRAND_LOGO_CANDIDATES = ['/brand/olympiacos-logo.png', '/brand/community-crest.svg'];
 const BRAND_HERO = '/brand/red-white-hero.svg';
 const OFFICIAL_HERO = '/brand/olympiacos-hero.jpg';
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+const MIC_CONSTRAINTS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1,
+  sampleRate: 48000,
+};
 
 const DEFAULT_SITE_SETTINGS = {
   site_title: 'Thrylos Agora',
@@ -56,8 +64,166 @@ function userColor(profile) {
 
 function publicAssetUrl(bucket, path) {
   if (!path) return '';
-  if (/^https?:\/\//i.test(path)) return path;
+  if (/^(https?:|blob:|data:)/i.test(path)) return path;
   return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+
+function profileAvatarUrl(profile) {
+  return publicAssetUrl(PROFILE_IMAGES_BUCKET, profile?.avatar_url || '');
+}
+
+function getInitials(name = '?') {
+  const clean = String(name || '?').trim();
+  if (!clean) return '?';
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return clean.slice(0, 1).toUpperCase();
+}
+
+function UserAvatar({ profile, name, color, className = '', title = '' }) {
+  const displayName = name || displayUser(profile);
+  const src = profileAvatarUrl(profile) || profile?.avatar_url || '';
+  const safeColor = color || userColor(profile);
+  return (
+    <span className={`user-avatar ${className}`.trim()} style={{ '--member-color': safeColor, background: safeColor }} title={title || displayName}>
+      {src ? <img src={src} alt={displayName} loading="lazy" /> : <span>{getInitials(displayName)}</span>}
+    </span>
+  );
+}
+
+function createVoiceProcessingChain(audioContext, source, destination) {
+  const highpass = audioContext.createBiquadFilter();
+  highpass.type = 'highpass';
+  highpass.frequency.value = 90;
+
+  const lowpass = audioContext.createBiquadFilter();
+  lowpass.type = 'lowpass';
+  lowpass.frequency.value = 12000;
+
+  const compressor = audioContext.createDynamicsCompressor();
+  compressor.threshold.value = -32;
+  compressor.knee.value = 24;
+  compressor.ratio.value = 3.2;
+  compressor.attack.value = 0.004;
+  compressor.release.value = 0.18;
+
+  const gain = audioContext.createGain();
+  gain.gain.value = 1.65;
+
+  source.connect(highpass);
+  highpass.connect(compressor);
+  compressor.connect(lowpass);
+  lowpass.connect(gain);
+  gain.connect(destination);
+  return { highpass, compressor, lowpass, gain };
+}
+
+function startVoiceMeter(stream, onLevel) {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass || !stream) return () => null;
+  const context = new AudioContextClass();
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 1024;
+  analyser.smoothingTimeConstant = 0.42;
+  const source = context.createMediaStreamSource(stream);
+  source.connect(analyser);
+  const data = new Float32Array(analyser.fftSize);
+  let raf = 0;
+  let lastSpeaking = false;
+  let lastSent = 0;
+  const tick = () => {
+    analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 1) sum += data[i] * data[i];
+    const rms = Math.sqrt(sum / data.length);
+    const speaking = rms > 0.018;
+    const now = Date.now();
+    if (speaking !== lastSpeaking || now - lastSent > 900) {
+      lastSpeaking = speaking;
+      lastSent = now;
+      onLevel?.(speaking, rms);
+    }
+    raf = window.requestAnimationFrame(tick);
+  };
+  tick();
+  return () => {
+    if (raf) window.cancelAnimationFrame(raf);
+    source.disconnect();
+    analyser.disconnect();
+    context.close().catch(() => null);
+  };
+}
+
+function encodeWav(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeString = (offset, value) => {
+    for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i));
+  };
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    offset += 2;
+  }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+async function createCleanWavFromRecording(blob) {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass || !blob?.size) throw new Error('Audio cleanup is not supported in this browser.');
+  const context = new AudioContextClass();
+  const arrayBuffer = await blob.arrayBuffer();
+  const audioBuffer = await context.decodeAudioData(arrayBuffer.slice(0));
+  const length = audioBuffer.length;
+  const sampleRate = audioBuffer.sampleRate;
+  const mono = new Float32Array(length);
+  for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
+    const data = audioBuffer.getChannelData(channel);
+    for (let i = 0; i < length; i += 1) mono[i] += data[i] / audioBuffer.numberOfChannels;
+  }
+  await context.close().catch(() => null);
+
+  const frameSize = Math.max(160, Math.floor(sampleRate * 0.02));
+  const rmsValues = [];
+  for (let i = 0; i < mono.length; i += frameSize) {
+    let sum = 0;
+    const end = Math.min(mono.length, i + frameSize);
+    for (let j = i; j < end; j += 1) sum += mono[j] * mono[j];
+    rmsValues.push(Math.sqrt(sum / Math.max(1, end - i)));
+  }
+  const sorted = [...rmsValues].sort((a, b) => a - b);
+  const noise = sorted[Math.floor(sorted.length * 0.22)] || 0.002;
+  const threshold = Math.max(0.004, noise * 2.6);
+  let envelope = 0;
+  let peak = 0;
+  let rmsSum = 0;
+  for (let i = 0; i < mono.length; i += 1) {
+    const target = Math.abs(mono[i]) > threshold ? 1 : 0.12;
+    envelope += (target - envelope) * (target > envelope ? 0.08 : 0.006);
+    mono[i] *= envelope;
+    peak = Math.max(peak, Math.abs(mono[i]));
+    rmsSum += mono[i] * mono[i];
+  }
+  const currentRms = Math.sqrt(rmsSum / Math.max(1, mono.length));
+  const rmsGain = currentRms > 0 ? 0.125 / currentRms : 1;
+  const peakGain = peak > 0 ? 0.92 / peak : 1;
+  const gain = Math.min(18, rmsGain, peakGain);
+  for (let i = 0; i < mono.length; i += 1) mono[i] = Math.max(-0.98, Math.min(0.98, mono[i] * gain));
+  return encodeWav(mono, sampleRate);
 }
 
 function applyDocumentBranding(settings = DEFAULT_SITE_SETTINGS) {
@@ -406,7 +572,7 @@ function PostCard({ post, profile, onChanged }) {
   const loadComments = useCallback(async () => {
     const { data } = await supabase
       .from('comments')
-      .select('*, profiles(handle, display_name, role, chat_color)')
+      .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
       .eq('post_id', post.id)
       .order('created_at', { ascending: true });
     setComments(data || []);
@@ -417,6 +583,7 @@ function PostCard({ post, profile, onChanged }) {
     const channel = supabase
       .channel(`comments-${post.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comments', filter: `post_id=eq.${post.id}` }, loadComments)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadComments)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [loadComments, post.id]);
@@ -451,9 +618,12 @@ function PostCard({ post, profile, onChanged }) {
   return (
     <article className="post-card glass-card">
       <header className="post-header">
-        <div>
-          <strong>{displayUser(author)}</strong>
-          <small>@{author?.handle || 'anon'} · {formatTime(post.created_at)}</small>
+        <div className="post-author-lockup">
+          <UserAvatar profile={author} className="post-avatar" />
+          <div>
+            <strong>{displayUser(author)}</strong>
+            <small>@{author?.handle || 'anon'} · {formatTime(post.created_at)}</small>
+          </div>
         </div>
         <div className="post-actions">
           <span className={`kind-pill ${post.kind}`}>{post.kind}</span>
@@ -490,7 +660,10 @@ function PostCard({ post, profile, onChanged }) {
           return (
             <div className="comment" key={comment.id}>
               <div className="comment-topline">
-                <strong>{displayUser(comment.profiles)}</strong>
+                <span className="comment-author">
+                  <UserAvatar profile={comment.profiles} className="comment-avatar" />
+                  <strong>{displayUser(comment.profiles)}</strong>
+                </span>
                 {canDeleteComment && <button type="button" onClick={() => deleteComment(comment.id)}>Delete</button>}
               </div>
               <span>{comment.body}</span>
@@ -578,7 +751,7 @@ function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
   const loadPosts = useCallback(async () => {
     let query = supabase
       .from('posts')
-      .select('*, profiles(handle, display_name, role, chat_color)')
+      .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
       .order('created_at', { ascending: false })
       .limit(50);
 
@@ -593,6 +766,7 @@ function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
     const channel = supabase
       .channel('posts-feed')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, loadPosts)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadPosts)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [loadPosts]);
@@ -926,7 +1100,7 @@ function ChatPanel({ profile }) {
   const loadMessages = useCallback(async () => {
     const { data } = await supabase
       .from('encrypted_messages')
-      .select('*, profiles(handle, display_name, role, chat_color)')
+      .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
       .order('created_at', { ascending: false })
       .limit(100);
     setMessages((data || []).reverse());
@@ -963,6 +1137,7 @@ function ChatPanel({ profile }) {
 
     const channel = supabase
       .channel('private-group-chat-room', { config: { broadcast: { self: false } } })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadMessages)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'encrypted_messages' }, () => {
         loadMessages();
       })
@@ -1128,13 +1303,14 @@ function ChatPanel({ profile }) {
                 {plainMessages.length === 0 && <div className="empty-text padded">No readable messages yet.</div>}
                 {plainMessages.map((message) => {
                   const canDelete = message.sender_id === profile.id || isStaff(profile.role);
-                  const color = userColor(message.profiles);
+                  const messageProfile = message.sender_id === profile.id ? profile : message.profiles;
+                  const color = userColor(messageProfile);
                   return (
                     <div className={`chat-line ${message.sender_id === profile.id ? 'mine' : ''} ${message.failed ? 'failed' : ''}`} key={message.id} style={{ '--member-color': color }}>
                       <div className="chat-line-head">
                         <div className="chat-author">
-                          <span className="chat-avatar" style={{ background: color }}>{displayUser(message.profiles).slice(0, 1).toUpperCase()}</span>
-                          <strong style={{ color }}>{displayUser(message.profiles)}</strong>
+                          <UserAvatar profile={messageProfile} color={color} className="chat-avatar" />
+                          <strong style={{ color }}>{displayUser(messageProfile)}</strong>
                         </div>
                         {canDelete && <button type="button" onClick={() => deleteMessage(message.id)}>×</button>}
                       </div>
@@ -1188,19 +1364,28 @@ function voiceRoleLabel(role) {
   return 'Listener';
 }
 
-function RemoteAudio({ stream, label, role = 'speaker', muted = false, color = '#e31b2f' }) {
+function VoiceAvatarTile({ stream, profile, name, role = 'speaker', muted = false, color = '#e31b2f', speaking = false }) {
   const ref = useRef(null);
+  const [audioSpeaking, setAudioSpeaking] = useState(false);
   useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream;
+    if (ref.current) ref.current.srcObject = stream || null;
   }, [stream]);
+  useEffect(() => {
+    if (!stream || muted) {
+      setAudioSpeaking(false);
+      return undefined;
+    }
+    return startVoiceMeter(stream, (nextSpeaking) => setAudioSpeaking(nextSpeaking));
+  }, [stream, muted]);
+  const displayName = name || displayUser(profile);
+  const active = !muted && (speaking || audioSpeaking);
+  const tileProfile = profile || { display_name: displayName, avatar_url: '', chat_color: color };
   return (
-    <div className="voice-peer" style={{ '--member-color': color }}>
-      <span className="voice-dot" />
-      <div className="voice-peer-main">
-        <strong>{label}</strong>
-        <small>{voiceRoleLabel(role)}{muted ? ' · muted' : ''}</small>
-      </div>
-      <audio ref={ref} autoPlay playsInline />
+    <div className={`voice-avatar-tile ${active ? 'speaking' : ''} ${muted ? 'muted' : ''}`} style={{ '--member-color': color }} title={`${displayName} · ${voiceRoleLabel(role)}${muted ? ' · muted' : ''}`}>
+      <UserAvatar profile={tileProfile} name={displayName} color={color} className="voice-photo" />
+      <span className="voice-role-dot">{role === 'host' ? 'H' : role === 'cohost' ? 'S' : role === 'speaker' ? 'M' : 'L'}</span>
+      {muted && <span className="voice-muted-dot">×</span>}
+      {stream && <audio ref={ref} autoPlay playsInline />}
     </div>
   );
 }
@@ -1212,6 +1397,7 @@ function VoiceRoom({ profile, compact = false }) {
   const [remoteStreams, setRemoteStreams] = useState({});
   const [remoteNames, setRemoteNames] = useState({});
   const [remoteStates, setRemoteStates] = useState({});
+  const [localSpeaking, setLocalSpeaking] = useState(false);
   const [voiceMembers, setVoiceMembers] = useState({});
   const [roomRoles, setRoomRoles] = useState({});
   const [localRole, setLocalRole] = useState('listener');
@@ -1224,6 +1410,8 @@ function VoiceRoom({ profile, compact = false }) {
   const [recording, setRecording] = useState(false);
   const [recordingUrl, setRecordingUrl] = useState('');
   const [recordingName, setRecordingName] = useState('');
+  const [cleanWavUrl, setCleanWavUrl] = useState('');
+  const [cleanWavName, setCleanWavName] = useState('');
   const [recordingError, setRecordingError] = useState('');
 
   const channelRef = useRef(null);
@@ -1242,6 +1430,8 @@ function VoiceRoom({ profile, compact = false }) {
   const recordingAudioContextRef = useRef(null);
   const recordingDestinationRef = useRef(null);
   const recordingSourcesRef = useRef(new Map());
+  const speakingRef = useRef(false);
+  const lastSpeakingBroadcastRef = useRef(0);
 
   useEffect(() => { mutedRef.current = muted; }, [muted]);
   useEffect(() => { localRoleRef.current = localRole; }, [localRole]);
@@ -1272,10 +1462,12 @@ function VoiceRoom({ profile, compact = false }) {
     await channelRef.current.track({
       name: displayUser(profile),
       color: userColor(profile),
+      avatar_url: profile.avatar_url || '',
       muted: mutedRef.current,
       role: localRoleRef.current,
       mic_allowed: micAllowedRef.current,
       has_mic: Boolean(localStreamRef.current),
+      speaking: speakingRef.current,
       in_voice: true,
       joined_at: joinedAtRef.current,
       ...overrides,
@@ -1289,6 +1481,53 @@ function VoiceRoom({ profile, compact = false }) {
       trackVoiceState({ role: 'host', mic_allowed: true });
     }
   }, [joined, hostId, profile.id, trackVoiceState]);
+
+  useEffect(() => {
+    if (!joined || !localStreamRef.current || mutedRef.current) {
+      if (speakingRef.current) {
+        speakingRef.current = false;
+        setLocalSpeaking(false);
+        trackVoiceState({ speaking: false });
+        sendBroadcast('voice-state', {
+          from: profile.id,
+          name: displayUser(profile),
+          muted: mutedRef.current,
+          hasMic: Boolean(localStreamRef.current),
+          role: localRoleRef.current,
+          avatar_url: profile.avatar_url || '',
+          speaking: false,
+        });
+      }
+      return undefined;
+    }
+
+    return startVoiceMeter(localStreamRef.current, (speaking, level) => {
+      const cleanSpeaking = !mutedRef.current && speaking;
+      const changed = cleanSpeaking !== speakingRef.current;
+      speakingRef.current = cleanSpeaking;
+      setLocalSpeaking(cleanSpeaking);
+      const now = Date.now();
+      if (changed || now - lastSpeakingBroadcastRef.current > 1200) {
+        lastSpeakingBroadcastRef.current = now;
+        trackVoiceState({ speaking: cleanSpeaking, level });
+        sendBroadcast('voice-state', {
+          from: profile.id,
+          name: displayUser(profile),
+          muted: mutedRef.current,
+          hasMic: Boolean(localStreamRef.current),
+          role: localRoleRef.current,
+          avatar_url: profile.avatar_url || '',
+          speaking: cleanSpeaking,
+          level,
+        });
+      }
+    });
+  }, [joined, localMicActive, profile, sendBroadcast, trackVoiceState]);
+
+  useEffect(() => {
+    if (!joined) return;
+    trackVoiceState({ avatar_url: profile.avatar_url || '', name: displayUser(profile), color: userColor(profile) });
+  }, [joined, profile.avatar_url, profile.display_name, profile.chat_color, trackVoiceState]);
 
   const closePeer = useCallback((peerId) => {
     const pc = peersRef.current.get(peerId);
@@ -1428,10 +1667,12 @@ function VoiceRoom({ profile, compact = false }) {
         id: userId,
         name: latest.name || (userId === profile.id ? displayUser(profile) : 'Member'),
         color: latest.color || '#e31b2f',
+        avatar_url: latest.avatar_url || '',
         muted: Boolean(latest.muted),
         role: roleOverride || latest.role || 'listener',
         micAllowed: Boolean(latest.mic_allowed),
         hasMic: Boolean(latest.has_mic),
+        speaking: Boolean(latest.speaking),
         joinedAt: latest.joined_at || new Date().toISOString(),
       };
     });
@@ -1454,13 +1695,19 @@ function VoiceRoom({ profile, compact = false }) {
     localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !nextMuted; });
     mutedRef.current = nextMuted;
     setMuted(nextMuted);
-    await trackVoiceState({ muted: nextMuted });
+    if (nextMuted) {
+      speakingRef.current = false;
+      setLocalSpeaking(false);
+    }
+    await trackVoiceState({ muted: nextMuted, speaking: nextMuted ? false : speakingRef.current });
     await sendBroadcast('voice-state', {
       from: profile.id,
       name: displayUser(profile),
       muted: nextMuted,
       hasMic: Boolean(localStreamRef.current),
       role: localRoleRef.current,
+      avatar_url: profile.avatar_url || '',
+      speaking: speakingRef.current,
     });
   }, [profile, sendBroadcast, trackVoiceState]);
 
@@ -1478,7 +1725,7 @@ function VoiceRoom({ profile, compact = false }) {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: MIC_CONSTRAINTS,
         video: false,
       });
       localStreamRef.current = stream;
@@ -1495,6 +1742,8 @@ function VoiceRoom({ profile, compact = false }) {
         muted: false,
         hasMic: true,
         role: localRoleRef.current,
+        avatar_url: profile.avatar_url || '',
+        speaking: speakingRef.current,
       });
       await renegotiateAll();
     } catch (err) {
@@ -1518,13 +1767,17 @@ function VoiceRoom({ profile, compact = false }) {
     setLocalMicActive(false);
     mutedRef.current = forcedMuted;
     setMuted(forcedMuted);
-    await trackVoiceState({ muted: forcedMuted, has_mic: false });
+    speakingRef.current = false;
+    setLocalSpeaking(false);
+    await trackVoiceState({ muted: forcedMuted, has_mic: false, speaking: false });
     await sendBroadcast('voice-state', {
       from: profile.id,
       name: displayUser(profile),
       muted: forcedMuted,
       hasMic: false,
       role: localRoleRef.current,
+      avatar_url: profile.avatar_url || '',
+      speaking: speakingRef.current,
     });
     await renegotiateAll();
   }, [profile, renegotiateAll, sendBroadcast, trackVoiceState]);
@@ -1548,6 +1801,8 @@ function VoiceRoom({ profile, compact = false }) {
     setVoiceMembers({});
     setHostId(null);
     setRoomStartedAt(null);
+    setLocalSpeaking(false);
+    speakingRef.current = false;
     knownMembersRef.current.clear();
 
     if (recordingRef.current) stopRecording();
@@ -1607,7 +1862,7 @@ function VoiceRoom({ profile, compact = false }) {
 
       if (wantsMic) {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          audio: MIC_CONSTRAINTS,
           video: false,
         });
         localStreamRef.current = stream;
@@ -1622,6 +1877,7 @@ function VoiceRoom({ profile, compact = false }) {
         .on('broadcast', { event: 'voice-join' }, ({ payload }) => {
           if (!payload || payload.from === profile.id) return;
           setRemoteNames((current) => ({ ...current, [payload.from]: payload.name || 'Member' }));
+          setRemoteStates((current) => ({ ...current, [payload.from]: { ...(current[payload.from] || {}), avatar_url: payload.avatar_url || current[payload.from]?.avatar_url || '', role: payload.role || current[payload.from]?.role } }));
           if (shouldInitiate(payload.from)) createOffer(payload.from, payload.name);
           if (profile.id === hostIdRef.current && Object.keys(roomRolesRef.current).length > 0) {
             channel.send({
@@ -1641,6 +1897,8 @@ function VoiceRoom({ profile, compact = false }) {
             [payload.from]: {
               muted: Boolean(payload.muted),
               hasMic: Boolean(payload.hasMic),
+              speaking: Boolean(payload.speaking),
+              avatar_url: payload.avatar_url || current[payload.from]?.avatar_url || '',
               role: payload.role || current[payload.from]?.role,
             },
           }));
@@ -1669,10 +1927,12 @@ function VoiceRoom({ profile, compact = false }) {
             await channel.track({
               name: displayUser(profile),
               color: userColor(profile),
+              avatar_url: profile.avatar_url || '',
               muted: mutedRef.current,
               role: localRoleRef.current,
               mic_allowed: micAllowedRef.current,
               has_mic: Boolean(localStreamRef.current),
+              speaking: speakingRef.current,
               in_voice: true,
               joined_at: joinedAtRef.current,
             });
@@ -1680,7 +1940,7 @@ function VoiceRoom({ profile, compact = false }) {
             await channel.send({
               type: 'broadcast',
               event: 'voice-join',
-              payload: { from: profile.id, name: displayUser(profile), color: userColor(profile), role: localRoleRef.current },
+              payload: { from: profile.id, name: displayUser(profile), color: userColor(profile), avatar_url: profile.avatar_url || '', role: localRoleRef.current },
             });
           }
         });
@@ -1726,8 +1986,8 @@ function VoiceRoom({ profile, compact = false }) {
     if (!audioContext || !destination || !stream || recordingSourcesRef.current.has(key)) return;
     try {
       const source = audioContext.createMediaStreamSource(stream);
-      source.connect(destination);
-      recordingSourcesRef.current.set(key, source);
+      const nodes = createVoiceProcessingChain(audioContext, source, destination);
+      recordingSourcesRef.current.set(key, { source, nodes });
     } catch (err) {
       console.warn('Could not add stream to recording mix', err);
     }
@@ -1748,8 +2008,11 @@ function VoiceRoom({ profile, compact = false }) {
 
     try {
       if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+      if (cleanWavUrl) URL.revokeObjectURL(cleanWavUrl);
       setRecordingUrl('');
       setRecordingName('');
+      setCleanWavUrl('');
+      setCleanWavName('');
       recordedChunksRef.current = [];
       recordingSourcesRef.current.clear();
 
@@ -1762,17 +2025,26 @@ function VoiceRoom({ profile, compact = false }) {
       Object.entries(remoteStreams).forEach(([peerId, stream]) => connectStreamToRecorder(stream, `remote-${peerId}`));
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
-      const recorder = new MediaRecorder(destination.stream, mimeType ? { mimeType } : undefined);
+      const recorderOptions = mimeType ? { mimeType, audioBitsPerSecond: 128000 } : { audioBitsPerSecond: 128000 };
+      const recorder = new MediaRecorder(destination.stream, recorderOptions);
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) recordedChunksRef.current.push(event.data);
       };
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         const blob = new Blob(recordedChunksRef.current, { type: mimeType || 'audio/webm' });
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
         const url = URL.createObjectURL(blob);
-        const name = `thrylos-voice-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
         setRecordingUrl(url);
-        setRecordingName(name);
+        setRecordingName(`thrylos-voice-raw-${stamp}.webm`);
+        try {
+          const cleanBlob = await createCleanWavFromRecording(blob);
+          const cleanUrl = URL.createObjectURL(cleanBlob);
+          setCleanWavUrl(cleanUrl);
+          setCleanWavName(`thrylos-voice-clean-${stamp}.wav`);
+        } catch (err) {
+          setRecordingError(err.message || 'Clean WAV conversion failed. You can still download the WebM.');
+        }
         recordingAudioContextRef.current?.close().catch(() => null);
         recordingAudioContextRef.current = null;
         recordingDestinationRef.current = null;
@@ -1855,46 +2127,56 @@ function VoiceRoom({ profile, compact = false }) {
             <button className="danger-btn" type="button" onClick={stopVoice}>Leave</button>
           </div>
 
-          {(recording || recordingUrl) && (
+          {(recording || recordingUrl || cleanWavUrl) && (
             <div className="recording-box">
-              {recording && <span className="recording-live"><i /> Recording locally…</span>}
-              {recordingUrl && <a className="ghost-link" href={recordingUrl} download={recordingName || 'voice-recording.webm'}>Download recording</a>}
-              <small>Recordings are saved on your device only. Tell members before recording.</small>
+              {recording && <span className="recording-live"><i /> Recording clean local mix…</span>}
+              {cleanWavUrl && <a className="ghost-link primary-download" href={cleanWavUrl} download={cleanWavName || 'voice-clean.wav'}>Download cleaned WAV</a>}
+              {recordingUrl && <a className="ghost-link" href={recordingUrl} download={recordingName || 'voice-raw.webm'}>Download raw WebM</a>}
+              <small>The app records through a voice filter and also creates a cleaned WAV copy after you stop.</small>
             </div>
           )}
         </>
       )}
 
-      <div className="voice-members upgraded-list">
-        <div className="voice-peer self" style={{ '--member-color': userColor(profile) }}>
-          <span className="voice-dot" />
-          <div className="voice-peer-main">
-            <strong>{joined ? displayUser(profile) : 'Not connected'}</strong>
-            <small>{joined ? `${voiceRoleLabel(selfRole)} · ${localMicActive ? (muted ? 'muted' : 'mic open') : 'no mic'}` : 'Choose how to enter the room'}</small>
-          </div>
+      <div className="voice-members voice-avatar-grid" aria-label="Voice room members">
+        <div className="voice-member-row compact" style={{ '--member-color': userColor(profile) }}>
+          <VoiceAvatarTile
+            profile={profile}
+            name={joined ? displayUser(profile) : 'Not connected'}
+            role={selfRole}
+            muted={!localMicActive || muted}
+            color={userColor(profile)}
+            speaking={localSpeaking}
+          />
+          {joined && <small className="voice-name-chip">You · {voiceRoleLabel(selfRole)}</small>}
         </div>
         {memberEntries.map(([peerId, info]) => {
           const stream = remoteStreams[peerId];
           const effectiveRole = getEffectiveRole(peerId, info);
           const state = remoteStates[peerId] || {};
-          const isPeerMuted = Boolean(state.muted || info.muted);
+          const isPeerMuted = Boolean(state.muted || info.muted || effectiveRole === 'listener');
           const peerName = remoteNames[peerId] || info.name || 'Member';
           const color = info.color || '#e31b2f';
+          const memberProfile = {
+            display_name: peerName,
+            handle: peerName,
+            chat_color: color,
+            avatar_url: state.avatar_url || info.avatar_url || '',
+          };
           return (
-            <div className="voice-member-row" key={peerId}>
-              {stream ? (
-                <RemoteAudio stream={stream} label={peerName} role={effectiveRole} muted={isPeerMuted} color={color} />
-              ) : (
-                <div className="voice-peer waiting" style={{ '--member-color': color }}>
-                  <span className="voice-dot" />
-                  <div className="voice-peer-main">
-                    <strong>{peerName}</strong>
-                    <small>{voiceRoleLabel(effectiveRole)} · connecting/listening</small>
-                  </div>
-                </div>
-              )}
+            <div className="voice-member-row compact" key={peerId} style={{ '--member-color': color }}>
+              <VoiceAvatarTile
+                stream={stream}
+                profile={memberProfile}
+                name={peerName}
+                role={effectiveRole}
+                muted={isPeerMuted}
+                color={color}
+                speaking={Boolean(state.speaking || info.speaking)}
+              />
+              <small className="voice-name-chip">{peerName} · {voiceRoleLabel(effectiveRole)}</small>
               {canModerateVoice && (
-                <div className="voice-control-row">
+                <div className="voice-control-row avatar-controls">
                   {canManageCohosts && (
                     effectiveRole === 'cohost' ? (
                       <button type="button" className="tiny-action" onClick={() => assignVoiceRole(peerId, 'speaker')}>Remove sub-host</button>
@@ -1926,13 +2208,30 @@ function ProfileCard({ profile, setProfile }) {
   const [displayName, setDisplayName] = useState(profile.display_name || '');
   const [chatColor, setChatColor] = useState(userColor(profile));
   const [bio, setBio] = useState(profile.bio || '');
+  const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url || '');
+  const [avatarPreview, setAvatarPreview] = useState(profileAvatarUrl(profile));
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setDisplayName(profile.display_name || '');
+    setChatColor(userColor(profile));
+    setBio(profile.bio || '');
+    setAvatarUrl(profile.avatar_url || '');
+    setAvatarPreview(profileAvatarUrl(profile));
+  }, [profile]);
 
   async function saveProfile(e) {
     e.preventDefault();
     const { data, error } = await supabase
       .from('profiles')
-      .update({ display_name: displayName.trim(), chat_color: chatColor, bio: bio.trim(), last_seen: new Date().toISOString() })
+      .update({
+        display_name: displayName.trim(),
+        chat_color: chatColor,
+        bio: bio.trim(),
+        avatar_url: avatarUrl || null,
+        last_seen: new Date().toISOString(),
+      })
       .eq('id', profile.id)
       .select('*')
       .single();
@@ -1945,17 +2244,94 @@ function ProfileCard({ profile, setProfile }) {
     setTimeout(() => setSaved(false), 1200);
   }
 
+  async function uploadAvatar(file) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please choose an image file.');
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      alert('Profile image must be under 3 MB.');
+      return;
+    }
+
+    setAvatarBusy(true);
+    const oldPreview = avatarPreview;
+    const localPreview = URL.createObjectURL(file);
+    setAvatarPreview(localPreview);
+
+    const extension = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+    const path = `${profile.id}/${Date.now()}-${randomId()}.${extension}`;
+    const { error: uploadError } = await supabase.storage.from(PROFILE_IMAGES_BUCKET).upload(path, file, {
+      cacheControl: '3600',
+      upsert: true,
+      contentType: file.type,
+    });
+    if (uploadError) {
+      alert(uploadError.message);
+      setAvatarPreview(oldPreview);
+      URL.revokeObjectURL(localPreview);
+      setAvatarBusy(false);
+      return;
+    }
+
+    const publicUrl = publicAssetUrl(PROFILE_IMAGES_BUCKET, path);
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ avatar_url: path, last_seen: new Date().toISOString() })
+      .eq('id', profile.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      alert(error.message);
+      setAvatarPreview(oldPreview);
+      URL.revokeObjectURL(localPreview);
+    } else {
+      setAvatarUrl(path);
+      setAvatarPreview(publicUrl);
+      setProfile(data);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1200);
+    }
+    setAvatarBusy(false);
+  }
+
+  async function removeAvatar() {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ avatar_url: null, last_seen: new Date().toISOString() })
+      .eq('id', profile.id)
+      .select('*')
+      .single();
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    setAvatarUrl('');
+    setAvatarPreview('');
+    setProfile(data);
+  }
+
+  const previewProfile = { ...profile, display_name: displayName, chat_color: chatColor, avatar_url: avatarPreview || avatarUrl };
+
   return (
     <aside className="side-card glass-card">
       <h2>Your anonymous profile</h2>
       <div className="profile-big">
-        <span className="avatar" style={{ background: chatColor }}>{(displayName || profile.handle || '?').slice(0, 1).toUpperCase()}</span>
+        <UserAvatar profile={previewProfile} className="avatar profile-photo" />
         <div>
           <strong>@{profile.handle}</strong>
           <small>{roleBadge(profile.role)}</small>
         </div>
       </div>
       <form onSubmit={saveProfile} className="profile-form">
+        <label className="avatar-upload-box">
+          Profile image
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => uploadAvatar(e.target.files?.[0])} disabled={avatarBusy} />
+          <span>{avatarBusy ? 'Uploading…' : 'Upload an avatar. It appears instantly in chat and voice.'}</span>
+        </label>
+        {avatarPreview && <button className="ghost-btn compact" type="button" onClick={removeAvatar}>Remove profile image</button>}
         <label>
           Display name
           <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={48} required />

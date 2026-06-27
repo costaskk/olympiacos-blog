@@ -261,3 +261,29 @@ Voice chat additions:
 - local browser recording with downloadable `.webm` audio file
 
 The recorder saves locally in the browser of the person who starts the recording. Tell members before recording a call.
+
+## v5.3 voice recording and profile image update
+
+This version improves the live voice room and recording flow:
+
+- microphone capture now requests browser echo cancellation, noise suppression, auto gain control, mono audio, and 48 kHz audio;
+- local recordings pass through a browser-side voice chain before recording;
+- when recording stops, the app offers both a raw WebM and a cleaned WAV download;
+- voice-room members are shown as avatar-only tiles;
+- a member avatar lights up when the member is speaking;
+- each user can upload a profile image from the profile card and it updates immediately in chat/voice/feed UI;
+- profile image changes are also listened for through Supabase Realtime.
+
+Run the full `supabase/schema.sql` again after deploying this update, because this version adds the `profile-images` bucket and makes sure `profiles.avatar_url` exists.
+
+If you have an older noisy `.webm` recording, you can still fix it locally with ffmpeg:
+
+```bash
+ffmpeg -i input.webm -af "highpass=f=90,lowpass=f=12000,afftdn=nf=-38,acompressor=threshold=-30dB:ratio=3:attack=5:release=120:makeup=8,dynaudnorm=f=150:g=12:p=0.95,loudnorm=I=-16:TP=-1.5:LRA=11" -ac 1 -ar 48000 output-clean.wav
+```
+
+Windows helper:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\fix-recording.ps1 "C:\Path\to\thrylos-voice.webm"
+```
