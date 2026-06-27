@@ -4,9 +4,11 @@ Modern red-white private fan blog with invite-only anonymous registration, membe
 
 This project includes original red-white fallback artwork. Official club logos/photos are not bundled. Add only assets you are allowed to use.
 
-## v4 changes
+## v5 changes
 
-- Removed public-facing explanation text about message protection/security details from the app UI and docs.
+- Fixed the lower-right chat popup alignment so the message input and Send button stay inside the panel.
+- Improved the voice tab so members, mute state, joins/leaves and peer connections update live through Supabase Realtime presence/broadcast.
+- Added a cleaner modern feed with highlight cards and stronger red-white styling.
 - Group chat is now a lower-right popup with two sub-tabs:
   - **Messages**
   - **Voice chat**
@@ -154,7 +156,7 @@ npm run build
 
 git status
 git add .
-git commit -m "Add admin branding settings and chat voice tabs"
+git commit -m "Polish chat layout voice room and modern blog UI"
 git push origin main
 ```
 
@@ -236,3 +238,7 @@ public/brand/red-white-hero.svg
 └── supabase/
     └── schema.sql
 ```
+
+### Replacing the default logo
+
+Log in with an admin account, click **Site settings**, then use **Site logo → Replace default logo**. Upload a PNG/JPG/WebP/GIF/SVG file, click **Save site settings**, and the new logo will replace the fallback crest across the top bar, invite page, privacy shield, chat/app branding, and browser tab icon. You can also paste a direct logo URL or click **Use default crest** to reset it.

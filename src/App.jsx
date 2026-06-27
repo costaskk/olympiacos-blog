@@ -17,14 +17,14 @@ const DEFAULT_SITE_SETTINGS = {
   site_title: 'Thrylos Agora',
   tagline: 'Anonymous. Invite-only. Red-white agora.',
   header_tagline: 'Independent red-white community',
-  gate_heading: 'A modern private red-white blog for members only.',
-  gate_intro: 'Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join the live group chat and voice room without giving an email.',
-  feed_eyebrow: 'ΘΡΥΛΟΣ AGORA · PRIVATE BOARD',
-  feed_heading: 'Red-white matchday pulse, news and member posts.',
-  feed_intro: 'A modern members-only space for clean posts, images, YouTube clips, transfer talk, match reactions and private community chat.',
-  community_title: 'Clean red-white community',
-  community_text: 'Use the feed for member posts and the floating group chat for live community talk.',
-  footer_text: 'Independent red-white fan project. Add only brand assets you are allowed to use in public/brand/ or from the admin settings page.',
+  gate_heading: 'A clean private red-white blog built for matchday talk.',
+  gate_intro: 'Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join the live group room with messages and voice, using only a one-use invite.',
+  feed_eyebrow: 'ΘΡΥΛΟΣ AGORA · MEMBERS BOARD',
+  feed_heading: 'The red-white feed for news, reactions and member posts.',
+  feed_intro: 'A polished members-only board for match reactions, transfer rumours, news links, images, clips and live community talk.',
+  community_title: 'Red-white community hub',
+  community_text: 'Post carefully, keep the board clean, and use the floating room for live matchday conversation.',
+  footer_text: 'Private red-white members area · built for clean matchday discussion.',
   logo_url: '',
   hero_url: '',
 };
@@ -58,6 +58,20 @@ function publicAssetUrl(bucket, path) {
   if (!path) return '';
   if (/^https?:\/\//i.test(path)) return path;
   return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+
+function applyDocumentBranding(settings = DEFAULT_SITE_SETTINGS) {
+  const title = settings.site_title || APP_NAME;
+  document.title = title;
+
+  const faviconUrl = settings.logo_url || '/favicon.svg';
+  let favicon = document.querySelector('link[rel=\"icon\"]');
+  if (!favicon) {
+    favicon = document.createElement('link');
+    favicon.rel = 'icon';
+    document.head.appendChild(favicon);
+  }
+  favicon.href = faviconUrl;
 }
 
 async function loadSiteSettings() {
@@ -166,10 +180,10 @@ function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS }) {
         <h1>{settings.gate_heading}</h1>
         <p>{settings.gate_intro}</p>
         <div className="hero-grid">
-          <span>Gate 7 invite links</span>
-          <span>Admin moderation</span>
-          <span>Live group chat</span>
-          <span>Voice room</span>
+          <span>One-use invite links</span>
+          <span>Clean moderated feed</span>
+          <span>Live popup chat</span>
+          <span>Voice room tab</span>
         </div>
       </section>
 
@@ -510,6 +524,34 @@ function FeedHero({ profile, settings = DEFAULT_SITE_SETTINGS }) {
   );
 }
 
+
+function HomeHighlights({ profile }) {
+  return (
+    <section className="home-highlights">
+      <article className="highlight-card glass-card">
+        <span className="highlight-kicker">MATCHDAY</span>
+        <strong>Live reactions</strong>
+        <p>Use the feed for longer thoughts and the popup room for instant red-white talk.</p>
+      </article>
+      <article className="highlight-card glass-card">
+        <span className="highlight-kicker">MEDIA</span>
+        <strong>Images & YouTube</strong>
+        <p>Upload pictures, embed clips, and keep source links attached to news posts.</p>
+      </article>
+      <article className="highlight-card glass-card">
+        <span className="highlight-kicker">ROOM</span>
+        <strong>Chat & voice</strong>
+        <p>The lower-right group room updates live and includes a voice tab for members.</p>
+      </article>
+      <article className="highlight-card glass-card member-highlight" style={{ '--member-color': userColor(profile) }}>
+        <span className="highlight-kicker">YOU</span>
+        <strong>{displayUser(profile)}</strong>
+        <p>Your name and chat colour are shown across the live room.</p>
+      </article>
+    </section>
+  );
+}
+
 function TypingIndicator({ typers }) {
   const people = Object.values(typers).filter(Boolean);
   if (people.length === 0) return null;
@@ -558,6 +600,7 @@ function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
   return (
     <section className="feed-column">
       <FeedHero profile={profile} settings={settings} />
+      <HomeHighlights profile={profile} />
       <Composer profile={profile} onCreated={loadPosts} />
       <div className="feed-toolbar glass-card">
         <strong>Latest posts</strong>
@@ -690,6 +733,8 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
   const [form, setForm] = useState({ ...DEFAULT_SITE_SETTINGS, ...settings });
   const [logoFile, setLogoFile] = useState(null);
   const [heroFile, setHeroFile] = useState(null);
+  const [logoPreview, setLogoPreview] = useState('');
+  const [heroPreview, setHeroPreview] = useState('');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -697,6 +742,26 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
   useEffect(() => {
     setForm({ ...DEFAULT_SITE_SETTINGS, ...settings });
   }, [settings]);
+
+  useEffect(() => {
+    if (!logoFile) {
+      setLogoPreview('');
+      return undefined;
+    }
+    const url = URL.createObjectURL(logoFile);
+    setLogoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [logoFile]);
+
+  useEffect(() => {
+    if (!heroFile) {
+      setHeroPreview('');
+      return undefined;
+    }
+    const url = URL.createObjectURL(heroFile);
+    setHeroPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [heroFile]);
 
   function updateField(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -708,10 +773,10 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
     if (file.size > 5 * 1024 * 1024) throw new Error('Brand images must be under 5 MB.');
     const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
     const safeExt = ext.replace(/[^a-z0-9]/g, '') || 'png';
-    const path = `branding/${type}-${Date.now()}.${safeExt}`;
+    const path = `branding/${type}-${Date.now()}-${randomId()}.${safeExt}`;
     const { error: uploadError } = await supabase.storage.from(SITE_ASSETS_BUCKET).upload(path, file, {
       cacheControl: '3600',
-      upsert: true,
+      upsert: false,
     });
     if (uploadError) throw uploadError;
     return publicAssetUrl(SITE_ASSETS_BUCKET, path);
@@ -738,6 +803,7 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
       setLogoFile(null);
       setHeroFile(null);
       setSaved(true);
+      applyDocumentBranding(next);
       await onSettingsChanged?.();
       setTimeout(() => setSaved(false), 1600);
     } catch (err) {
@@ -747,43 +813,65 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
     }
   }
 
+  const liveLogoSettings = { ...form, logo_url: logoPreview || form.logo_url };
+  const effectiveLogo = logoPreview || form.logo_url || '/brand/community-crest.svg';
+  const effectiveHero = heroPreview || form.hero_url || BRAND_HERO;
+
   return (
     <main className="admin-site-page">
       <section className="admin-site-hero glass-card">
         <div>
           <span className="eyebrow">ADMIN SITE SETTINGS</span>
           <h1>Customize the logo, hero image and wording.</h1>
-          <p>These changes apply to the public invite screen, top bar, feed hero, side cards and footer.</p>
+          <p>Replace the default crest from here. The selected logo is used in the top bar, invite screen, privacy shield and browser tab icon after saving.</p>
         </div>
         <button className="ghost-btn" type="button" onClick={goBack}>Back to blog</button>
       </section>
 
       <form className="admin-settings-grid" onSubmit={saveSettings}>
         <section className="glass-card admin-settings-card">
-          <h2>Brand images</h2>
-          <div className="brand-preview-row">
-            <BrandMark large settings={form} />
+          <h2>Site logo</h2>
+          <div className="brand-preview-row brand-preview-strong">
+            <BrandMark large settings={liveLogoSettings} />
             <div>
               <strong>{form.site_title || APP_NAME}</strong>
-              <small>{form.tagline}</small>
+              <small>{logoFile ? `Ready to replace with ${logoFile.name}` : form.logo_url ? 'Custom logo active' : 'Using fallback crest'}</small>
             </div>
           </div>
+
+          <div className="logo-upload-box">
+            <div className="logo-upload-preview">
+              <img src={effectiveLogo} alt="Current site logo preview" />
+            </div>
+            <div>
+              <strong>Replace default logo</strong>
+              <p>Upload PNG, JPG, WebP, GIF or SVG. Square images work best. Save settings after selecting the file.</p>
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} />
+            </div>
+          </div>
+
           <label>
             Logo URL
             <input value={form.logo_url} onChange={(e) => updateField('logo_url', e.target.value)} placeholder="https://... or /brand/olympiacos-logo.png" />
           </label>
-          <label>
-            Upload new logo
-            <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} />
-          </label>
+          <div className="button-row split-actions">
+            <button className="ghost-btn" type="button" onClick={() => { setLogoFile(null); updateField('logo_url', ''); }}>Use default crest</button>
+            {form.logo_url && <a className="ghost-btn" href={form.logo_url} target="_blank" rel="noreferrer">Open current logo</a>}
+          </div>
+        </section>
+
+        <section className="glass-card admin-settings-card">
+          <h2>Hero/background image</h2>
+          <div className="hero-upload-preview" style={{ backgroundImage: `url(${effectiveHero})` }} />
           <label>
             Hero/background URL
             <input value={form.hero_url} onChange={(e) => updateField('hero_url', e.target.value)} placeholder="https://... or /brand/olympiacos-hero.jpg" />
           </label>
           <label>
             Upload new hero image
-            <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => setHeroFile(e.target.files?.[0] || null)} />
+            <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" onChange={(e) => setHeroFile(e.target.files?.[0] || null)} />
           </label>
+          <button className="ghost-btn" type="button" onClick={() => { setHeroFile(null); updateField('hero_url', ''); }}>Use default hero art</button>
         </section>
 
         <section className="glass-card admin-settings-card wide">
@@ -1020,7 +1108,7 @@ function ChatPanel({ profile }) {
           </div>
 
           {activeTab === 'messages' ? (
-            <>
+            <div className="chat-tab-panel messages-panel">
               <div className="room-key-box popup-key-box">
                 <label>
                   Group room passphrase
@@ -1069,11 +1157,13 @@ function ChatPanel({ profile }) {
                   disabled={!canDecrypt}
                   maxLength={2000}
                 />
-                <button className="primary-btn" disabled={!canDecrypt || busy}>{busy ? '…' : 'Send'}</button>
+                <button className="primary-btn send-message-btn" disabled={!canDecrypt || busy}>{busy ? '…' : 'Send'}</button>
               </form>
-            </>
+            </div>
           ) : (
-            <VoiceRoom profile={profile} compact />
+            <div className="chat-tab-panel voice-panel">
+              <VoiceRoom profile={profile} compact />
+            </div>
           )}
         </aside>
       )}
@@ -1101,11 +1191,18 @@ function VoiceRoom({ profile, compact = false }) {
   const [voiceError, setVoiceError] = useState('');
   const [remoteStreams, setRemoteStreams] = useState({});
   const [remoteNames, setRemoteNames] = useState({});
-  const [memberCount, setMemberCount] = useState(0);
+  const [remoteStates, setRemoteStates] = useState({});
+  const [voiceMembers, setVoiceMembers] = useState({});
   const channelRef = useRef(null);
   const localStreamRef = useRef(null);
   const peersRef = useRef(new Map());
   const activeRef = useRef(false);
+  const knownMembersRef = useRef(new Set());
+
+  const shouldInitiate = useCallback((peerId) => {
+    if (!peerId || peerId === profile.id) return false;
+    return String(profile.id).localeCompare(String(peerId)) < 0;
+  }, [profile.id]);
 
   const sendBroadcast = useCallback(async (event, payload) => {
     if (!channelRef.current) return;
@@ -1116,12 +1213,18 @@ function VoiceRoom({ profile, compact = false }) {
     const pc = peersRef.current.get(peerId);
     if (pc) pc.close();
     peersRef.current.delete(peerId);
+    knownMembersRef.current.delete(peerId);
     setRemoteStreams((current) => {
       const next = { ...current };
       delete next[peerId];
       return next;
     });
     setRemoteNames((current) => {
+      const next = { ...current };
+      delete next[peerId];
+      return next;
+    });
+    setRemoteStates((current) => {
       const next = { ...current };
       delete next[peerId];
       return next;
@@ -1133,6 +1236,7 @@ function VoiceRoom({ profile, compact = false }) {
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     peersRef.current.set(peerId, pc);
+    knownMembersRef.current.add(peerId);
     setRemoteNames((current) => ({ ...current, [peerId]: peerName }));
 
     localStreamRef.current?.getTracks().forEach((track) => pc.addTrack(track, localStreamRef.current));
@@ -1207,13 +1311,37 @@ function VoiceRoom({ profile, compact = false }) {
     }
   }, [getPeer, profile, sendBroadcast]);
 
+  const syncPresence = useCallback((channel) => {
+    const state = channel.presenceState();
+    const nextMembers = {};
+    Object.entries(state).forEach(([userId, presences]) => {
+      const latest = presences?.[presences.length - 1] || {};
+      nextMembers[userId] = {
+        id: userId,
+        name: latest.name || (userId === profile.id ? displayUser(profile) : 'Member'),
+        color: latest.color || '#e31b2f',
+        muted: Boolean(latest.muted),
+      };
+    });
+    setVoiceMembers(nextMembers);
+
+    if (!activeRef.current) return;
+    Object.entries(nextMembers).forEach(([peerId, info]) => {
+      if (peerId !== profile.id && !knownMembersRef.current.has(peerId) && shouldInitiate(peerId)) {
+        window.setTimeout(() => createOffer(peerId, info.name), 250);
+      }
+    });
+  }, [createOffer, profile, shouldInitiate]);
+
   const stopVoice = useCallback(async () => {
     activeRef.current = false;
     setJoined(false);
     setMuted(false);
     setRemoteStreams({});
     setRemoteNames({});
-    setMemberCount(0);
+    setRemoteStates({});
+    setVoiceMembers({});
+    knownMembersRef.current.clear();
 
     await sendBroadcast('voice-leave', { from: profile.id });
 
@@ -1247,27 +1375,37 @@ function VoiceRoom({ profile, compact = false }) {
       setJoined(true);
 
       const channel = supabase
-        .channel('live-voice-room', { config: { presence: { key: profile.id } } })
-        .on('presence', { event: 'sync' }, () => {
-          const state = channel.presenceState();
-          setMemberCount(Object.keys(state).length);
-        })
+        .channel('live-voice-room', { config: { presence: { key: profile.id }, broadcast: { self: false } } })
+        .on('presence', { event: 'sync' }, () => syncPresence(channel))
         .on('broadcast', { event: 'voice-join' }, ({ payload }) => {
-          if (payload.from !== profile.id) createOffer(payload.from, payload.name);
+          if (!payload || payload.from === profile.id) return;
+          setRemoteNames((current) => ({ ...current, [payload.from]: payload.name || 'Member' }));
+          if (shouldInitiate(payload.from)) createOffer(payload.from, payload.name);
         })
         .on('broadcast', { event: 'voice-leave' }, ({ payload }) => {
-          if (payload.from !== profile.id) closePeer(payload.from);
+          if (payload?.from !== profile.id) closePeer(payload.from);
+        })
+        .on('broadcast', { event: 'voice-state' }, ({ payload }) => {
+          if (!payload || payload.from === profile.id) return;
+          setRemoteStates((current) => ({ ...current, [payload.from]: { muted: Boolean(payload.muted) } }));
         })
         .on('broadcast', { event: 'voice-signal' }, ({ payload }) => {
           handleSignal(payload);
         })
         .subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
-            await channel.track({ name: displayUser(profile), in_voice: true, joined_at: new Date().toISOString() });
+            await channel.track({
+              name: displayUser(profile),
+              color: userColor(profile),
+              muted: false,
+              in_voice: true,
+              joined_at: new Date().toISOString(),
+            });
+            syncPresence(channel);
             await channel.send({
               type: 'broadcast',
               event: 'voice-join',
-              payload: { from: profile.id, name: displayUser(profile) },
+              payload: { from: profile.id, name: displayUser(profile), color: userColor(profile) },
             });
           }
         });
@@ -1282,20 +1420,32 @@ function VoiceRoom({ profile, compact = false }) {
     }
   }
 
-  function toggleMute() {
+  async function toggleMute() {
     const next = !muted;
     localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !next; });
     setMuted(next);
+    await channelRef.current?.track({
+      name: displayUser(profile),
+      color: userColor(profile),
+      muted: next,
+      in_voice: true,
+      joined_at: new Date().toISOString(),
+    }).catch(() => null);
+    await sendBroadcast('voice-state', { from: profile.id, name: displayUser(profile), muted: next });
   }
 
   useEffect(() => () => { stopVoice(); }, [stopVoice]);
+
+  const memberEntries = Object.entries(voiceMembers).filter(([id]) => id !== profile.id);
+  const memberCount = Object.keys(voiceMembers).length;
 
   return (
     <aside className={`voice-card ${compact ? 'inside-chat' : 'glass-card'}`}>
       <div className="voice-head">
         <div>
+          <span className="eyebrow">VOICE ROOM</span>
           <h2>Live voice room</h2>
-          <p>Browser voice chat for the group room. Works best on Vercel HTTPS.</p>
+          <p>Join the group audio room. Members connect live and the room list updates automatically.</p>
         </div>
         <span className={joined ? 'voice-status on' : 'voice-status'}>{joined ? 'Live' : 'Off'}</span>
       </div>
@@ -1314,17 +1464,25 @@ function VoiceRoom({ profile, compact = false }) {
       </div>
 
       <div className="voice-members">
-        <div className="voice-peer self">
+        <div className="voice-peer self" style={{ '--member-color': userColor(profile) }}>
           <span className="voice-dot" />
           <strong>{joined ? `${displayUser(profile)} ${muted ? '(muted)' : '(you)'}` : 'Not connected'}</strong>
         </div>
-        {Object.entries(remoteStreams).map(([peerId, stream]) => (
-          <RemoteAudio key={peerId} stream={stream} label={remoteNames[peerId] || 'Member'} />
-        ))}
+        {memberEntries.map(([peerId, info]) => {
+          const stream = remoteStreams[peerId];
+          const isPeerMuted = remoteStates[peerId]?.muted || info.muted;
+          return stream ? (
+            <RemoteAudio key={peerId} stream={stream} label={`${remoteNames[peerId] || info.name || 'Member'}${isPeerMuted ? ' (muted)' : ''}`} />
+          ) : (
+            <div className="voice-peer waiting" key={peerId} style={{ '--member-color': info.color || '#e31b2f' }}>
+              <span className="voice-dot" />
+              <strong>{info.name || 'Member'} connecting…</strong>
+            </div>
+          );
+        })}
       </div>
       <p className="tiny-note">
-        Free setup uses public STUN only; some strict networks may need a TURN server later.
-        {joined ? ` Members in room: ${memberCount}.` : ''}
+        {joined ? `Members in voice: ${memberCount || 1}. Connections update live.` : 'Press Join voice and allow microphone access.'}
       </p>
     </aside>
   );
@@ -1397,7 +1555,12 @@ function App() {
   const refreshSiteSettings = useCallback(async () => {
     const next = await loadSiteSettings();
     setSiteSettings(next);
+    applyDocumentBranding(next);
   }, []);
+
+  useEffect(() => {
+    applyDocumentBranding(siteSettings);
+  }, [siteSettings]);
 
   const loadProfile = useCallback(async (userId) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
