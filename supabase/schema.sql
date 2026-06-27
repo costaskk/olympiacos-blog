@@ -1,12 +1,12 @@
 -- Thrylos Agora Supabase schema
 -- Run this once in Supabase SQL Editor.
--- Then run: select public.make_founder_invite();
--- Copy the returned token and use it to register the first account.
+-- Then run: select public.make_admin_invite();
+-- Copy the returned token and use it to register the owner/admin account.
 
 create extension if not exists pgcrypto;
 create extension if not exists citext;
 
--- Profiles are anonymous: no email, phone, legal name, or ID is stored here.
+-- Profiles are anonymous for normal users: no email, phone, legal name, or ID is stored here.
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   handle citext not null unique,
@@ -25,12 +25,25 @@ create table if not exists public.profiles (
 create table if not exists public.invites (
   id uuid primary key default gen_random_uuid(),
   token_hash text not null unique,
+  invite_role text not null default 'member' check (invite_role in ('member', 'moderator', 'admin')),
   created_by uuid references public.profiles(id) on delete set null,
   used_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   used_at timestamptz,
   expires_at timestamptz not null default now() + interval '30 days'
 );
+
+alter table public.invites add column if not exists invite_role text not null default 'member';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'invites_invite_role_check'
+  ) then
+    alter table public.invites
+      add constraint invites_invite_role_check check (invite_role in ('member', 'moderator', 'admin'));
+  end if;
+end $$;
 
 do $$
 begin
@@ -105,7 +118,7 @@ create trigger posts_touch_updated_at
 before update on public.posts
 for each row execute function public.touch_updated_at();
 
-create or replace function public.is_admin(check_user uuid default auth.uid())
+create or replace function public.is_staff(check_user uuid default auth.uid())
 returns boolean
 language sql
 stable
@@ -116,6 +129,30 @@ as $$
     select 1 from public.profiles
     where id = check_user and role in ('admin', 'moderator')
   );
+$$;
+
+create or replace function public.is_full_admin(check_user uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = check_user and role = 'admin'
+  );
+$$;
+
+-- Backwards-compatible name used by older policies.
+create or replace function public.is_admin(check_user uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.is_staff(check_user);
 $$;
 
 create or replace function public.create_invite(days_valid integer default 30)
@@ -139,8 +176,8 @@ begin
   valid_days := greatest(1, least(coalesce(days_valid, 30), 90));
   raw_token := lower(encode(gen_random_bytes(24), 'hex'));
 
-  insert into public.invites (token_hash, created_by, expires_at)
-  values (encode(digest(raw_token, 'sha256'), 'hex'), auth.uid(), now() + make_interval(days => valid_days));
+  insert into public.invites (token_hash, invite_role, created_by, expires_at)
+  values (encode(digest(raw_token, 'sha256'), 'hex'), 'member', auth.uid(), now() + make_interval(days => valid_days));
 
   return raw_token;
 end;
@@ -200,7 +237,9 @@ begin
     raise exception 'Invite is invalid, expired, or already used';
   end if;
 
-  v_role := case when not exists (select 1 from public.profiles limit 1) then 'admin' else 'member' end;
+  -- The invite decides the role. Normal app-created invites are always member invites.
+  -- The admin/founder invite is created only from Supabase SQL.
+  v_role := coalesce(v_invite.invite_role, 'member');
 
   insert into public.profiles (id, handle, display_name, role, invite_id)
   values (auth.uid(), v_handle, v_display, v_role, v_invite.id)
@@ -214,9 +253,10 @@ begin
 end;
 $$;
 
--- SQL-editor only helper for the very first account.
--- It returns a one-use founder invite and is intentionally revoked from client roles.
-create or replace function public.make_founder_invite()
+-- SQL-editor helper for the owner/admin account.
+-- Run: select public.make_admin_invite();
+-- It returns a one-use admin invite. Use that invite in the app to create your admin account.
+create or replace function public.make_admin_invite(days_valid integer default 7)
 returns text
 language plpgsql
 security definer
@@ -224,25 +264,74 @@ set search_path = public
 as $$
 declare
   raw_token text;
+  valid_days integer;
 begin
-  if exists (select 1 from public.profiles limit 1) then
-    raise exception 'A profile already exists. Members can create invites from the app.';
-  end if;
-
+  valid_days := greatest(1, least(coalesce(days_valid, 7), 30));
   raw_token := 'founder-' || lower(encode(gen_random_bytes(18), 'hex'));
 
-  insert into public.invites (token_hash, created_by, expires_at)
-  values (encode(digest(raw_token, 'sha256'), 'hex'), null, now() + interval '7 days');
+  insert into public.invites (token_hash, invite_role, created_by, expires_at)
+  values (encode(digest(raw_token, 'sha256'), 'hex'), 'admin', null, now() + make_interval(days => valid_days));
 
   return raw_token;
 end;
 $$;
 
+-- Backwards-compatible alias from the first version.
+create or replace function public.make_founder_invite()
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return public.make_admin_invite(7);
+end;
+$$;
+
+create or replace function public.admin_set_user_role(target_user uuid, new_role text)
+returns public.profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_profile public.profiles%rowtype;
+  admin_count integer;
+begin
+  if not public.is_full_admin(auth.uid()) then
+    raise exception 'Only admins can change roles';
+  end if;
+
+  if new_role not in ('member', 'moderator', 'admin') then
+    raise exception 'Invalid role';
+  end if;
+
+  select count(*) into admin_count from public.profiles where role = 'admin';
+  if target_user = auth.uid() and new_role <> 'admin' and admin_count <= 1 then
+    raise exception 'You cannot demote the only admin account';
+  end if;
+
+  update public.profiles
+  set role = new_role, last_seen = now()
+  where id = target_user
+  returning * into v_profile;
+
+  if not found then
+    raise exception 'User not found';
+  end if;
+
+  return v_profile;
+end;
+$$;
+
+revoke all on function public.make_admin_invite(integer) from public, anon, authenticated;
 revoke all on function public.make_founder_invite() from public, anon, authenticated;
 revoke all on function public.create_invite(integer) from public, anon;
 revoke all on function public.accept_invite(text, text, text) from public, anon;
+revoke all on function public.admin_set_user_role(uuid, text) from public, anon;
 grant execute on function public.create_invite(integer) to authenticated;
 grant execute on function public.accept_invite(text, text, text) to authenticated;
+grant execute on function public.admin_set_user_role(uuid, text) to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.invites enable row level security;
@@ -262,10 +351,14 @@ for update to authenticated
 using (id = auth.uid())
 with check (id = auth.uid());
 
+-- Prevent normal users from editing their own role through the browser.
+revoke update on public.profiles from authenticated;
+grant update (display_name, avatar_url, bio, last_seen) on public.profiles to authenticated;
+
 drop policy if exists invites_select_own on public.invites;
 create policy invites_select_own on public.invites
 for select to authenticated
-using (created_by = auth.uid() or used_by = auth.uid());
+using (created_by = auth.uid() or used_by = auth.uid() or public.is_full_admin());
 
 drop policy if exists posts_select_authenticated on public.posts;
 create policy posts_select_authenticated on public.posts
@@ -280,13 +373,13 @@ with check (author_id = auth.uid());
 drop policy if exists posts_update_self_or_admin on public.posts;
 create policy posts_update_self_or_admin on public.posts
 for update to authenticated
-using (author_id = auth.uid() or public.is_admin())
-with check (author_id = auth.uid() or public.is_admin());
+using (author_id = auth.uid() or public.is_staff())
+with check (author_id = auth.uid() or public.is_staff());
 
 drop policy if exists posts_delete_self_or_admin on public.posts;
 create policy posts_delete_self_or_admin on public.posts
 for delete to authenticated
-using (author_id = auth.uid() or public.is_admin());
+using (author_id = auth.uid() or public.is_staff());
 
 drop policy if exists comments_select_authenticated on public.comments;
 create policy comments_select_authenticated on public.comments
@@ -301,7 +394,7 @@ with check (author_id = auth.uid());
 drop policy if exists comments_delete_self_or_admin on public.comments;
 create policy comments_delete_self_or_admin on public.comments
 for delete to authenticated
-using (author_id = auth.uid() or public.is_admin());
+using (author_id = auth.uid() or public.is_staff());
 
 drop policy if exists likes_select_authenticated on public.post_likes;
 create policy likes_select_authenticated on public.post_likes
@@ -327,6 +420,11 @@ drop policy if exists messages_insert_self on public.encrypted_messages;
 create policy messages_insert_self on public.encrypted_messages
 for insert to authenticated
 with check (sender_id = auth.uid());
+
+drop policy if exists messages_delete_self_or_admin on public.encrypted_messages;
+create policy messages_delete_self_or_admin on public.encrypted_messages
+for delete to authenticated
+using (sender_id = auth.uid() or public.is_staff());
 
 -- Public image bucket for blog images. Supabase Storage handles the actual files.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

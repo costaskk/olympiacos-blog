@@ -7,6 +7,9 @@ import './styles.css';
 
 const BUCKET = 'post-images';
 const APP_NAME = 'Thrylos Agora';
+const BRAND_LOGO = '/brand/olympiacos-logo.png';
+const BRAND_HERO = '/brand/olympiacos-hero.jpg';
+const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 function formatTime(value) {
   if (!value) return '';
@@ -32,12 +35,27 @@ function roleBadge(role) {
   return 'Member';
 }
 
+function isStaff(role) {
+  return role === 'admin' || role === 'moderator';
+}
+
+function BrandMark({ large = false }) {
+  const [failed, setFailed] = useState(false);
+  return failed ? (
+    <span className={`crest ${large ? 'large' : ''}`}>Θ</span>
+  ) : (
+    <span className={`crest crest-image ${large ? 'large' : ''}`}>
+      <img src={BRAND_LOGO} alt="Community logo" onError={() => setFailed(true)} />
+    </span>
+  );
+}
+
 function SetupNotice() {
   return (
     <main className="setup-shell">
       <div className="setup-card glass-card">
         <div className="brand-lockup big">
-          <span className="crest">Θ</span>
+          <BrandMark large />
           <div>
             <strong>{APP_NAME}</strong>
             <small>Private red-white blog + encrypted agora</small>
@@ -87,9 +105,9 @@ function InviteGate({ onProfileReady }) {
 
   return (
     <main className="gate-shell">
-      <section className="gate-hero">
+      <section className="gate-hero" style={{ '--hero-image': `url(${BRAND_HERO})` }}>
         <div className="brand-lockup big">
-          <span className="crest">Θ</span>
+          <BrandMark large />
           <div>
             <strong>{APP_NAME}</strong>
             <small>Anonymous. Invite-only. Red-white noise.</small>
@@ -97,14 +115,14 @@ function InviteGate({ onProfileReady }) {
         </div>
         <h1>A clean private Olympiacos-style blog for members only.</h1>
         <p>
-          Post thoughts, images, YouTube links, news, and join the encrypted group chat. No email is requested.
-          Your browser keeps the anonymous session, so do not sign out unless you accept losing this identity.
+          Post thoughts, images, YouTube links, news, voice-chat with members, and join the encrypted group chat.
+          No email is requested from normal members.
         </p>
         <div className="hero-grid">
           <span>One-use invites</span>
-          <span>Encrypted chat</span>
-          <span>Image posts</span>
-          <span>YouTube embeds</span>
+          <span>Admin moderation</span>
+          <span>Encrypted text chat</span>
+          <span>Live voice room</span>
         </div>
       </section>
 
@@ -152,7 +170,7 @@ function InviteGate({ onProfileReady }) {
           {busy ? 'Creating anonymous account…' : 'Join privately'}
         </button>
         <p className="tiny-note">
-          No recovery email is stored. Keep the same browser profile if you want to keep the same account.
+          Admin setup uses a special founder invite. Normal users still need only an anonymous invite link.
         </p>
       </form>
     </main>
@@ -188,7 +206,7 @@ function Shell({ profile, setProfile, children }) {
       {safeShield && (
         <div className="privacy-shield">
           <div>
-            <span className="crest">Θ</span>
+            <BrandMark large />
             <strong>Private screen shield</strong>
             <small>Content is hidden while the tab is not active.</small>
           </div>
@@ -197,7 +215,7 @@ function Shell({ profile, setProfile, children }) {
       <div className="watermark">{profile?.handle || 'anonymous'} · private members forum</div>
       <header className="topbar">
         <div className="brand-lockup">
-          <span className="crest">Θ</span>
+          <BrandMark />
           <div>
             <strong>{APP_NAME}</strong>
             <small>Independent fan community</small>
@@ -313,7 +331,7 @@ function PostCard({ post, profile, onChanged }) {
   const [busy, setBusy] = useState(false);
   const author = post.profiles;
   const youtubeId = getYoutubeId(post.video_url);
-  const canDelete = post.author_id === profile.id || ['admin', 'moderator'].includes(profile.role);
+  const canDelete = post.author_id === profile.id || isStaff(profile.role);
   const imageUrl = useMemo(() => {
     if (!post.image_path) return null;
     return supabase.storage.from(BUCKET).getPublicUrl(post.image_path).data.publicUrl;
@@ -357,6 +375,13 @@ function PostCard({ post, profile, onChanged }) {
     onChanged?.();
   }
 
+  async function deleteComment(commentId) {
+    if (!window.confirm('Delete this comment?')) return;
+    const { error } = await supabase.from('comments').delete().eq('id', commentId);
+    if (error) alert(error.message);
+    loadComments();
+  }
+
   return (
     <article className="post-card glass-card">
       <header className="post-header">
@@ -394,12 +419,18 @@ function PostCard({ post, profile, onChanged }) {
       <section className="comments">
         <h3>Comments</h3>
         {comments.length === 0 && <p className="empty-text">No comments yet.</p>}
-        {comments.map((comment) => (
-          <div className="comment" key={comment.id}>
-            <strong>{displayUser(comment.profiles)}</strong>
-            <span>{comment.body}</span>
-          </div>
-        ))}
+        {comments.map((comment) => {
+          const canDeleteComment = comment.author_id === profile.id || isStaff(profile.role);
+          return (
+            <div className="comment" key={comment.id}>
+              <div className="comment-topline">
+                <strong>{displayUser(comment.profiles)}</strong>
+                {canDeleteComment && <button type="button" onClick={() => deleteComment(comment.id)}>Delete</button>}
+              </div>
+              <span>{comment.body}</span>
+            </div>
+          );
+        })}
         <form className="comment-form" onSubmit={addComment}>
           <input value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Add a comment…" maxLength={2000} />
           <button className="ghost-btn" disabled={busy}>Send</button>
@@ -454,7 +485,7 @@ function Feed({ profile }) {
   );
 }
 
-function InvitePanel() {
+function InvitePanel({ profile }) {
   const [invites, setInvites] = useState([]);
   const [lastInvite, setLastInvite] = useState('');
   const [busy, setBusy] = useState(false);
@@ -487,7 +518,7 @@ function InvitePanel() {
   return (
     <aside className="side-card glass-card">
       <h2>Invite system</h2>
-      <p>Every invite is unique, one-use, and expires after 30 days.</p>
+      <p>Every invite is unique, one-use, and expires after 30 days. Invites created here are normal member invites.</p>
       <button className="primary-btn full" type="button" onClick={createInvite} disabled={busy}>
         {busy ? 'Creating…' : 'Create one-use invite'}
       </button>
@@ -501,7 +532,63 @@ function InvitePanel() {
         {invites.map((invite) => (
           <div key={invite.id}>
             <strong>{invite.used_at ? 'Used' : 'Open'}</strong>
-            <span>{formatTime(invite.created_at)}</span>
+            <span>{invite.invite_role || 'member'} · {formatTime(invite.created_at)}</span>
+          </div>
+        ))}
+      </div>
+      {profile.role === 'admin' && <p className="tiny-note">Admin/founder invites are created from Supabase SQL only, so they are not accidentally generated by members.</p>}
+    </aside>
+  );
+}
+
+function AdminPanel({ profile }) {
+  const [members, setMembers] = useState([]);
+  const [stats, setStats] = useState({ members: 0, posts: 0, messages: 0 });
+  const [busyId, setBusyId] = useState('');
+
+  const loadAdminData = useCallback(async () => {
+    if (profile.role !== 'admin') return;
+    const [{ data: memberRows }, postCount, messageCount] = await Promise.all([
+      supabase.from('profiles').select('id, handle, display_name, role, created_at, last_seen').order('created_at', { ascending: false }).limit(50),
+      supabase.from('posts').select('id', { count: 'exact', head: true }),
+      supabase.from('encrypted_messages').select('id', { count: 'exact', head: true }),
+    ]);
+    setMembers(memberRows || []);
+    setStats({ members: memberRows?.length || 0, posts: postCount.count || 0, messages: messageCount.count || 0 });
+  }, [profile.role]);
+
+  useEffect(() => { loadAdminData(); }, [loadAdminData]);
+
+  async function setRole(memberId, role) {
+    setBusyId(memberId);
+    const { error } = await supabase.rpc('admin_set_user_role', { target_user: memberId, new_role: role });
+    setBusyId('');
+    if (error) alert(error.message);
+    loadAdminData();
+  }
+
+  if (profile.role !== 'admin') return null;
+
+  return (
+    <aside className="side-card glass-card admin-panel">
+      <h2>Admin control</h2>
+      <div className="admin-stats">
+        <span><strong>{stats.members}</strong><small>members shown</small></span>
+        <span><strong>{stats.posts}</strong><small>posts</small></span>
+        <span><strong>{stats.messages}</strong><small>chat msgs</small></span>
+      </div>
+      <div className="member-list">
+        {members.map((member) => (
+          <div className="member-row" key={member.id}>
+            <div>
+              <strong>@{member.handle}</strong>
+              <small>{displayUser(member)} · {roleBadge(member.role)}</small>
+            </div>
+            <select value={member.role} disabled={busyId === member.id} onChange={(e) => setRole(member.id, e.target.value)}>
+              <option value="member">member</option>
+              <option value="moderator">moderator</option>
+              <option value="admin">admin</option>
+            </select>
           </div>
         ))}
       </div>
@@ -534,6 +621,7 @@ function ChatPanel({ profile }) {
     const channel = supabase
       .channel('encrypted-group-chat')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'encrypted_messages' }, loadMessages)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'encrypted_messages' }, loadMessages)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [loadMessages]);
@@ -584,6 +672,13 @@ function ChatPanel({ profile }) {
     }
   }
 
+  async function deleteMessage(messageId) {
+    if (!window.confirm('Delete this encrypted message record?')) return;
+    const { error } = await supabase.from('encrypted_messages').delete().eq('id', messageId);
+    if (error) alert(error.message);
+    loadMessages();
+  }
+
   function generateSecret() {
     const secret = makeRoomSecret();
     setRoomSecret(secret);
@@ -621,13 +716,19 @@ function ChatPanel({ profile }) {
 
       <div className="chat-window" aria-live="polite">
         {plainMessages.length === 0 && <div className="empty-text padded">No readable messages yet.</div>}
-        {plainMessages.map((message) => (
-          <div className={`chat-line ${message.sender_id === profile.id ? 'mine' : ''} ${message.failed ? 'failed' : ''}`} key={message.id}>
-            <strong>{displayUser(message.profiles)}</strong>
-            <span>{message.plain}</span>
-            <small>{formatTime(message.created_at)}</small>
-          </div>
-        ))}
+        {plainMessages.map((message) => {
+          const canDelete = message.sender_id === profile.id || isStaff(profile.role);
+          return (
+            <div className={`chat-line ${message.sender_id === profile.id ? 'mine' : ''} ${message.failed ? 'failed' : ''}`} key={message.id}>
+              <div className="chat-line-head">
+                <strong>{displayUser(message.profiles)}</strong>
+                {canDelete && <button type="button" onClick={() => deleteMessage(message.id)}>×</button>}
+              </div>
+              <span>{message.plain}</span>
+              <small>{formatTime(message.created_at)}</small>
+            </div>
+          );
+        })}
         <div ref={bottomRef} />
       </div>
 
@@ -643,6 +744,255 @@ function ChatPanel({ profile }) {
       </form>
       <p className="tiny-note">
         Screenshot protection is a deterrent only. Browsers cannot block every OS screenshot or camera photo.
+      </p>
+    </aside>
+  );
+}
+
+function RemoteAudio({ stream, label }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
+  return (
+    <div className="voice-peer">
+      <span className="voice-dot" />
+      <strong>{label}</strong>
+      <audio ref={ref} autoPlay playsInline />
+    </div>
+  );
+}
+
+function VoiceRoom({ profile }) {
+  const [joined, setJoined] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
+  const [remoteStreams, setRemoteStreams] = useState({});
+  const [remoteNames, setRemoteNames] = useState({});
+  const [memberCount, setMemberCount] = useState(0);
+  const channelRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const peersRef = useRef(new Map());
+  const activeRef = useRef(false);
+
+  const sendBroadcast = useCallback(async (event, payload) => {
+    if (!channelRef.current) return;
+    await channelRef.current.send({ type: 'broadcast', event, payload }).catch(() => null);
+  }, []);
+
+  const closePeer = useCallback((peerId) => {
+    const pc = peersRef.current.get(peerId);
+    if (pc) pc.close();
+    peersRef.current.delete(peerId);
+    setRemoteStreams((current) => {
+      const next = { ...current };
+      delete next[peerId];
+      return next;
+    });
+    setRemoteNames((current) => {
+      const next = { ...current };
+      delete next[peerId];
+      return next;
+    });
+  }, []);
+
+  const getPeer = useCallback((peerId, peerName = 'Member') => {
+    if (peersRef.current.has(peerId)) return peersRef.current.get(peerId);
+
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    peersRef.current.set(peerId, pc);
+    setRemoteNames((current) => ({ ...current, [peerId]: peerName }));
+
+    localStreamRef.current?.getTracks().forEach((track) => pc.addTrack(track, localStreamRef.current));
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendBroadcast('voice-signal', {
+          from: profile.id,
+          fromName: displayUser(profile),
+          to: peerId,
+          kind: 'candidate',
+          candidate: event.candidate,
+        });
+      }
+    };
+
+    pc.ontrack = (event) => {
+      const [stream] = event.streams;
+      if (!stream) return;
+      setRemoteStreams((current) => ({ ...current, [peerId]: stream }));
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
+        closePeer(peerId);
+      }
+    };
+
+    return pc;
+  }, [closePeer, profile, sendBroadcast]);
+
+  const createOffer = useCallback(async (peerId, peerName) => {
+    if (!activeRef.current || peerId === profile.id) return;
+    try {
+      const pc = getPeer(peerId, peerName);
+      const offer = await pc.createOffer({ offerToReceiveAudio: true });
+      await pc.setLocalDescription(offer);
+      await sendBroadcast('voice-signal', {
+        from: profile.id,
+        fromName: displayUser(profile),
+        to: peerId,
+        kind: 'offer',
+        sdp: offer,
+      });
+    } catch (err) {
+      console.warn('Voice offer failed', err);
+    }
+  }, [getPeer, profile, sendBroadcast]);
+
+  const handleSignal = useCallback(async (payload) => {
+    if (!activeRef.current || payload.to !== profile.id || payload.from === profile.id) return;
+    try {
+      const pc = getPeer(payload.from, payload.fromName);
+      if (payload.kind === 'offer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await sendBroadcast('voice-signal', {
+          from: profile.id,
+          fromName: displayUser(profile),
+          to: payload.from,
+          kind: 'answer',
+          sdp: answer,
+        });
+      } else if (payload.kind === 'answer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      } else if (payload.kind === 'candidate' && payload.candidate) {
+        await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+      }
+    } catch (err) {
+      console.warn('Voice signal failed', err);
+    }
+  }, [getPeer, profile, sendBroadcast]);
+
+  const stopVoice = useCallback(async () => {
+    activeRef.current = false;
+    setJoined(false);
+    setMuted(false);
+    setRemoteStreams({});
+    setRemoteNames({});
+    setMemberCount(0);
+
+    await sendBroadcast('voice-leave', { from: profile.id });
+
+    if (channelRef.current) {
+      await channelRef.current.untrack().catch(() => null);
+      await supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
+    peersRef.current.forEach((pc) => pc.close());
+    peersRef.current.clear();
+
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+  }, [profile.id, sendBroadcast]);
+
+  async function startVoice() {
+    setVoiceError('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setVoiceError('This browser does not support microphone voice chat.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
+      localStreamRef.current = stream;
+      activeRef.current = true;
+      setJoined(true);
+
+      const channel = supabase
+        .channel('live-voice-room', { config: { presence: { key: profile.id } } })
+        .on('presence', { event: 'sync' }, () => {
+          const state = channel.presenceState();
+          setMemberCount(Object.keys(state).length);
+        })
+        .on('broadcast', { event: 'voice-join' }, ({ payload }) => {
+          if (payload.from !== profile.id) createOffer(payload.from, payload.name);
+        })
+        .on('broadcast', { event: 'voice-leave' }, ({ payload }) => {
+          if (payload.from !== profile.id) closePeer(payload.from);
+        })
+        .on('broadcast', { event: 'voice-signal' }, ({ payload }) => {
+          handleSignal(payload);
+        })
+        .subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await channel.track({ name: displayUser(profile), in_voice: true, joined_at: new Date().toISOString() });
+            await channel.send({
+              type: 'broadcast',
+              event: 'voice-join',
+              payload: { from: profile.id, name: displayUser(profile) },
+            });
+          }
+        });
+
+      channelRef.current = channel;
+    } catch (err) {
+      activeRef.current = false;
+      setJoined(false);
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      setVoiceError(err.message || 'Microphone permission was denied.');
+    }
+  }
+
+  function toggleMute() {
+    const next = !muted;
+    localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !next; });
+    setMuted(next);
+  }
+
+  useEffect(() => () => { stopVoice(); }, [stopVoice]);
+
+  return (
+    <aside className="voice-card glass-card">
+      <div className="voice-head">
+        <div>
+          <h2>Live voice room</h2>
+          <p>Browser voice chat via WebRTC. Works best on Vercel HTTPS.</p>
+        </div>
+        <span className={joined ? 'voice-status on' : 'voice-status'}>{joined ? 'Live' : 'Off'}</span>
+      </div>
+
+      {voiceError && <div className="error-box">{voiceError}</div>}
+
+      <div className="voice-actions">
+        {!joined ? (
+          <button className="primary-btn full" type="button" onClick={startVoice}>Join voice</button>
+        ) : (
+          <>
+            <button className="ghost-btn" type="button" onClick={toggleMute}>{muted ? 'Unmute mic' : 'Mute mic'}</button>
+            <button className="danger-btn" type="button" onClick={stopVoice}>Leave</button>
+          </>
+        )}
+      </div>
+
+      <div className="voice-members">
+        <div className="voice-peer self">
+          <span className="voice-dot" />
+          <strong>{joined ? `${displayUser(profile)} ${muted ? '(muted)' : '(you)'}` : 'Not connected'}</strong>
+        </div>
+        {Object.entries(remoteStreams).map(([peerId, stream]) => (
+          <RemoteAudio key={peerId} stream={stream} label={remoteNames[peerId] || 'Member'} />
+        ))}
+      </div>
+      <p className="tiny-note">
+        Voice media is encrypted by WebRTC in transit. Free setup uses public STUN only; some strict networks may need a TURN server later.
+        {joined ? ` Members in room: ${memberCount}.` : ''}
       </p>
     </aside>
   );
@@ -739,7 +1089,8 @@ function App() {
       <main className="dashboard">
         <section className="left-rail">
           <ProfileCard profile={profile} setProfile={setProfile} />
-          <InvitePanel />
+          <AdminPanel profile={profile} />
+          <InvitePanel profile={profile} />
           <section className="side-card glass-card notice-card">
             <h2>Privacy reality</h2>
             <p>
@@ -750,11 +1101,12 @@ function App() {
         </section>
         <Feed profile={profile} />
         <section className="right-rail">
+          <VoiceRoom profile={profile} />
           <ChatPanel profile={profile} />
         </section>
       </main>
       <footer className="footer-note">
-        Independent fan project. No official club marks or assets are included.
+        Independent fan project. Official club marks/assets are not bundled; add only assets you are allowed to use in public/brand/.
       </footer>
     </Shell>
   );

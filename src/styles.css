@@ -795,3 +795,244 @@ code {
     padding: 2rem;
   }
 }
+
+/* Brand asset support: drop your allowed logo/background into public/brand/. */
+.crest.large {
+  width: 64px;
+  height: 64px;
+  border-radius: 22px;
+  font-size: 1.5rem;
+}
+
+.crest-image {
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.25rem;
+}
+
+.crest-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  border-radius: inherit;
+}
+
+.gate-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gate-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image: var(--hero-image);
+  background-size: cover;
+  background-position: center;
+  opacity: 0.18;
+}
+
+.gate-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(90deg, rgba(8, 9, 13, 0.96), rgba(8, 9, 13, 0.62)),
+    radial-gradient(circle at 20% 20%, rgba(209, 0, 25, 0.52), transparent 24rem);
+}
+
+.danger-btn {
+  border: 1px solid rgba(255, 77, 95, 0.5);
+  border-radius: 999px;
+  color: white;
+  cursor: pointer;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  background: rgba(209, 0, 25, 0.25);
+  padding: 0.72rem 1rem;
+}
+
+.danger-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.comment-topline,
+.chat-line-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.comment-topline button,
+.chat-line-head button {
+  width: auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.admin-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.admin-stats span {
+  display: grid;
+  gap: 0.15rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 0.7rem;
+}
+
+.admin-stats strong {
+  font-size: 1.2rem;
+}
+
+.admin-stats small,
+.member-row small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.member-list {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.member-row {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 0.6rem;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 0.65rem;
+}
+
+.member-row strong,
+.member-row small {
+  display: block;
+}
+
+.member-row select {
+  padding: 0.45rem 0.55rem;
+  border-radius: 12px;
+}
+
+.voice-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+}
+
+.voice-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.voice-head h2 {
+  margin: 0;
+}
+
+.voice-head p {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+  font-size: 0.86rem;
+}
+
+.voice-status {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.35rem 0.7rem;
+  font-weight: 900;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.voice-status.on {
+  color: #d8ffe9;
+  border-color: rgba(57, 217, 138, 0.35);
+  background: rgba(57, 217, 138, 0.12);
+}
+
+.voice-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.voice-actions .full {
+  grid-column: 1 / -1;
+}
+
+.voice-members {
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.18);
+  padding: 0.7rem;
+}
+
+.voice-peer {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 0.65rem 0.75rem;
+}
+
+.voice-peer.self {
+  background: rgba(209, 0, 25, 0.12);
+}
+
+.voice-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--green);
+  box-shadow: 0 0 0 5px rgba(57, 217, 138, 0.08);
+}
+
+.right-rail {
+  gap: 1.1rem;
+}
+
+@media (max-width: 820px) {
+  .member-row,
+  .voice-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .voice-head {
+    flex-direction: column;
+  }
+}
