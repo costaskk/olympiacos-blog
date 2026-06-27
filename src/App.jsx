@@ -7,8 +7,9 @@ import './styles.css';
 
 const BUCKET = 'post-images';
 const APP_NAME = 'Thrylos Agora';
-const BRAND_LOGO = '/brand/olympiacos-logo.png';
-const BRAND_HERO = '/brand/olympiacos-hero.jpg';
+const BRAND_LOGO_CANDIDATES = ['/brand/olympiacos-logo.png', '/brand/community-crest.svg'];
+const BRAND_HERO = '/brand/red-white-hero.svg';
+const OFFICIAL_HERO = '/brand/olympiacos-hero.jpg';
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 function formatTime(value) {
@@ -40,12 +41,17 @@ function isStaff(role) {
 }
 
 function BrandMark({ large = false }) {
-  const [failed, setFailed] = useState(false);
-  return failed ? (
-    <span className={`crest ${large ? 'large' : ''}`}>Θ</span>
-  ) : (
+  const [assetIndex, setAssetIndex] = useState(0);
+  const src = BRAND_LOGO_CANDIDATES[assetIndex];
+  return (
     <span className={`crest crest-image ${large ? 'large' : ''}`}>
-      <img src={BRAND_LOGO} alt="Community logo" onError={() => setFailed(true)} />
+      <img
+        src={src}
+        alt="Red-white community crest"
+        onError={() => {
+          if (assetIndex < BRAND_LOGO_CANDIDATES.length - 1) setAssetIndex(assetIndex + 1);
+        }}
+      />
     </span>
   );
 }
@@ -105,24 +111,23 @@ function InviteGate({ onProfileReady }) {
 
   return (
     <main className="gate-shell">
-      <section className="gate-hero" style={{ '--hero-image': `url(${BRAND_HERO})` }}>
+      <section className="gate-hero" style={{ '--hero-image': `url(${BRAND_HERO})`, '--official-hero-image': `url(${OFFICIAL_HERO})` }}>
         <div className="brand-lockup big">
           <BrandMark large />
           <div>
             <strong>{APP_NAME}</strong>
-            <small>Anonymous. Invite-only. Red-white noise.</small>
+            <small>Anonymous. Invite-only. Red-white agora.</small>
           </div>
         </div>
-        <h1>A clean private Olympiacos-style blog for members only.</h1>
+        <h1>A modern private red-white blog for members only.</h1>
         <p>
-          Post thoughts, images, YouTube links, news, voice-chat with members, and join the encrypted group chat.
-          No email is requested from normal members.
+          Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join voice chat and the encrypted group messenger without giving an email.
         </p>
         <div className="hero-grid">
-          <span>One-use invites</span>
+          <span>Gate 7 invite links</span>
           <span>Admin moderation</span>
-          <span>Encrypted text chat</span>
-          <span>Live voice room</span>
+          <span>Live encrypted messenger</span>
+          <span>Voice room</span>
         </div>
       </section>
 
@@ -440,6 +445,45 @@ function PostCard({ post, profile, onChanged }) {
   );
 }
 
+
+function FeedHero({ profile }) {
+  return (
+    <section className="feed-hero glass-card" style={{ '--hero-image': `url(${BRAND_HERO})`, '--official-hero-image': `url(${OFFICIAL_HERO})` }}>
+      <div className="feed-hero-copy">
+        <span className="eyebrow">ΘΡΥΛΟΣ AGORA · PRIVATE BOARD</span>
+        <h1>Red-white matchday pulse, news and member posts.</h1>
+        <p>
+          A modern anonymous members-only space for clean posts, images, YouTube clips, transfer talk,
+          match reactions and private community chat.
+        </p>
+      </div>
+      <div className="feed-hero-card">
+        <strong>@{profile.handle}</strong>
+        <span>{roleBadge(profile.role)} access</span>
+        <small>Use the composer below to publish to the private feed.</small>
+      </div>
+    </section>
+  );
+}
+
+function TypingIndicator({ typers }) {
+  const people = Object.values(typers).filter(Boolean);
+  if (people.length === 0) return null;
+
+  let label = '';
+  if (people.length === 1) label = `${people[0]} is typing…`;
+  else if (people.length === 2) label = `${people[0]} and ${people[1]} are typing…`;
+  else if (people.length === 3) label = `${people[0]}, ${people[1]} and ${people[2]} are typing…`;
+  else label = `${people.length} people are typing…`;
+
+  return (
+    <div className="typing-indicator" aria-live="polite">
+      <span className="typing-dots"><i /><i /><i /></span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function Feed({ profile }) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -469,6 +513,7 @@ function Feed({ profile }) {
 
   return (
     <section className="feed-column">
+      <FeedHero profile={profile} />
       <Composer profile={profile} onCreated={loadPosts} />
       <div className="feed-toolbar glass-card">
         <strong>Latest posts</strong>
@@ -597,15 +642,28 @@ function AdminPanel({ profile }) {
 }
 
 function ChatPanel({ profile }) {
+  const [isOpen, setIsOpen] = useState(() => localStorage.getItem('chat-popup-open') !== '0');
   const [roomSecret, setRoomSecret] = useState(sessionStorage.getItem('room-secret') || '');
   const [messages, setMessages] = useState([]);
   const [plainMessages, setPlainMessages] = useState([]);
   const [draft, setDraft] = useState('');
   const [privacyMode, setPrivacyMode] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [activeTypers, setActiveTypers] = useState({});
+  const [unreadCount, setUnreadCount] = useState(0);
   const bottomRef = useRef(null);
+  const chatChannelRef = useRef(null);
+  const typingTimersRef = useRef(new Map());
+  const lastTypingSentRef = useRef(0);
+  const isOpenRef = useRef(isOpen);
 
   const canDecrypt = roomSecret.trim().length >= 10;
+
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+    localStorage.setItem('chat-popup-open', isOpen ? '1' : '0');
+    if (isOpen) setUnreadCount(0);
+  }, [isOpen]);
 
   const loadMessages = useCallback(async () => {
     const { data } = await supabase
@@ -616,15 +674,69 @@ function ChatPanel({ profile }) {
     setMessages((data || []).reverse());
   }, []);
 
+  const sendTyping = useCallback(async (isTyping) => {
+    if (!chatChannelRef.current) return;
+    await chatChannelRef.current.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: {
+        user_id: profile.id,
+        name: displayUser(profile),
+        is_typing: isTyping,
+        at: Date.now(),
+      },
+    }).catch(() => null);
+  }, [profile]);
+
+  const clearTyper = useCallback((userId) => {
+    setActiveTypers((current) => {
+      const next = { ...current };
+      delete next[userId];
+      return next;
+    });
+    const timer = typingTimersRef.current.get(userId);
+    if (timer) window.clearTimeout(timer);
+    typingTimersRef.current.delete(userId);
+  }, []);
+
   useEffect(() => {
     loadMessages();
+
     const channel = supabase
-      .channel('encrypted-group-chat')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'encrypted_messages' }, loadMessages)
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'encrypted_messages' }, loadMessages)
+      .channel('encrypted-group-chat-room', { config: { broadcast: { self: false } } })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'encrypted_messages' }, () => {
+        loadMessages();
+      })
+      .on('broadcast', { event: 'message-created' }, ({ payload }) => {
+        if (payload?.sender_id !== profile.id && !isOpenRef.current) {
+          setUnreadCount((count) => count + 1);
+        }
+        loadMessages();
+      })
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (!payload || payload.user_id === profile.id) return;
+        if (!payload.is_typing) {
+          clearTyper(payload.user_id);
+          return;
+        }
+
+        setActiveTypers((current) => ({ ...current, [payload.user_id]: payload.name || 'Member' }));
+        const oldTimer = typingTimersRef.current.get(payload.user_id);
+        if (oldTimer) window.clearTimeout(oldTimer);
+        const newTimer = window.setTimeout(() => clearTyper(payload.user_id), 3500);
+        typingTimersRef.current.set(payload.user_id, newTimer);
+      })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [loadMessages]);
+
+    chatChannelRef.current = channel;
+
+    return () => {
+      typingTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      typingTimersRef.current.clear();
+      supabase.removeChannel(channel);
+      chatChannelRef.current = null;
+    };
+  }, [clearTyper, loadMessages, profile.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -650,8 +762,8 @@ function ChatPanel({ profile }) {
   }, [messages, roomSecret, canDecrypt]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [plainMessages.length]);
+    if (isOpen) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [plainMessages.length, isOpen]);
 
   async function send(e) {
     e.preventDefault();
@@ -659,12 +771,20 @@ function ChatPanel({ profile }) {
     setBusy(true);
     try {
       const encrypted = await encryptMessage(draft.trim(), roomSecret);
-      const { error } = await supabase.from('encrypted_messages').insert({
+      const { data, error } = await supabase.from('encrypted_messages').insert({
         sender_id: profile.id,
         ...encrypted,
-      });
+      }).select('id').single();
       if (error) throw error;
+
       setDraft('');
+      await sendTyping(false);
+      await chatChannelRef.current?.send({
+        type: 'broadcast',
+        event: 'message-created',
+        payload: { id: data?.id, sender_id: profile.id },
+      }).catch(() => null);
+      loadMessages();
     } catch (err) {
       alert(err.message || 'Could not send encrypted message');
     } finally {
@@ -686,66 +806,99 @@ function ChatPanel({ profile }) {
     navigator.clipboard?.writeText(secret).catch(() => null);
   }
 
+  function updateDraft(value) {
+    setDraft(value);
+    if (!value.trim()) {
+      sendTyping(false);
+      return;
+    }
+    const now = Date.now();
+    if (now - lastTypingSentRef.current > 1200) {
+      lastTypingSentRef.current = now;
+      sendTyping(true);
+    }
+  }
+
   return (
-    <aside className={`chat-card glass-card ${privacyMode ? 'chat-privacy' : ''}`}>
-      <div className="chat-head">
-        <div>
-          <h2>Encrypted group chat</h2>
-          <p>Messages are AES-GCM encrypted in the browser before they reach the database.</p>
-        </div>
-        <label className="toggle-line">
-          <input type="checkbox" checked={privacyMode} onChange={(e) => setPrivacyMode(e.target.checked)} />
-          Shield
-        </label>
-      </div>
+    <div className={`chat-popup ${isOpen ? 'open' : 'closed'}`}>
+      {!isOpen && (
+        <button className="chat-launcher" type="button" onClick={() => setIsOpen(true)} aria-label="Open encrypted messenger">
+          <span className="launcher-icon">💬</span>
+          <span>
+            <strong>Messenger</strong>
+            <small>{unreadCount > 0 ? `${unreadCount} new` : 'Encrypted group chat'}</small>
+          </span>
+        </button>
+      )}
 
-      <div className="room-key-box">
-        <label>
-          Group room passphrase
-          <input
-            type="password"
-            value={roomSecret}
-            onChange={(e) => setRoomSecret(e.target.value)}
-            placeholder="Share this manually with trusted members"
-          />
-        </label>
-        <button type="button" className="ghost-btn" onClick={generateSecret}>Generate</button>
-      </div>
-
-      {!canDecrypt && <div className="warning-box">Enter the shared room key to decrypt and send messages.</div>}
-
-      <div className="chat-window" aria-live="polite">
-        {plainMessages.length === 0 && <div className="empty-text padded">No readable messages yet.</div>}
-        {plainMessages.map((message) => {
-          const canDelete = message.sender_id === profile.id || isStaff(profile.role);
-          return (
-            <div className={`chat-line ${message.sender_id === profile.id ? 'mine' : ''} ${message.failed ? 'failed' : ''}`} key={message.id}>
-              <div className="chat-line-head">
-                <strong>{displayUser(message.profiles)}</strong>
-                {canDelete && <button type="button" onClick={() => deleteMessage(message.id)}>×</button>}
-              </div>
-              <span>{message.plain}</span>
-              <small>{formatTime(message.created_at)}</small>
+      {isOpen && (
+        <aside className={`chat-card glass-card popup-card ${privacyMode ? 'chat-privacy' : ''}`}>
+          <div className="popup-chat-titlebar">
+            <div>
+              <span className="eyebrow">LIVE MESSENGER</span>
+              <h2>Encrypted group chat</h2>
             </div>
-          );
-        })}
-        <div ref={bottomRef} />
-      </div>
+            <div className="popup-chat-actions">
+              <label className="toggle-line compact-toggle" title="Show privacy strip inside chat">
+                <input type="checkbox" checked={privacyMode} onChange={(event) => setPrivacyMode(event.target.checked)} />
+                Shield
+              </label>
+              <button className="ghost-btn compact" type="button" onClick={() => setIsOpen(false)}>Close</button>
+            </div>
+          </div>
 
-      <form className="chat-form" onSubmit={send}>
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={canDecrypt ? 'Write encrypted message…' : 'Enter room key first'}
-          disabled={!canDecrypt}
-          maxLength={2000}
-        />
-        <button className="primary-btn" disabled={!canDecrypt || busy}>{busy ? '…' : 'Send'}</button>
-      </form>
-      <p className="tiny-note">
-        Screenshot protection is a deterrent only. Browsers cannot block every OS screenshot or camera photo.
-      </p>
-    </aside>
+          <div className="room-key-box popup-key-box">
+            <label>
+              Group room passphrase
+              <input
+                type="password"
+                value={roomSecret}
+                onChange={(event) => setRoomSecret(event.target.value)}
+                placeholder="Shared room key"
+              />
+            </label>
+            <button type="button" className="ghost-btn" onClick={generateSecret}>Generate</button>
+          </div>
+
+          {!canDecrypt && <div className="warning-box">Enter the shared room key to decrypt and send messages.</div>}
+
+          <div className="chat-window popup-chat-window" aria-live="polite">
+            {plainMessages.length === 0 && <div className="empty-text padded">No readable messages yet.</div>}
+            {plainMessages.map((message) => {
+              const canDelete = message.sender_id === profile.id || isStaff(profile.role);
+              return (
+                <div className={`chat-line ${message.sender_id === profile.id ? 'mine' : ''} ${message.failed ? 'failed' : ''}`} key={message.id}>
+                  <div className="chat-line-head">
+                    <strong>{displayUser(message.profiles)}</strong>
+                    {canDelete && <button type="button" onClick={() => deleteMessage(message.id)}>×</button>}
+                  </div>
+                  <span>{message.plain}</span>
+                  <small>{formatTime(message.created_at)}</small>
+                </div>
+              );
+            })}
+            <div ref={bottomRef} />
+          </div>
+
+          <TypingIndicator typers={activeTypers} />
+
+          <form className="chat-form popup-chat-form" onSubmit={send}>
+            <input
+              value={draft}
+              onChange={(event) => updateDraft(event.target.value)}
+              onBlur={() => sendTyping(false)}
+              placeholder={canDecrypt ? 'Write encrypted message…' : 'Enter room key first'}
+              disabled={!canDecrypt}
+              maxLength={2000}
+            />
+            <button className="primary-btn" disabled={!canDecrypt || busy}>{busy ? '…' : 'Send'}</button>
+          </form>
+          <p className="tiny-note">
+            Messages update live. Screenshot protection is a deterrent only; browsers cannot block every OS screenshot or camera photo.
+          </p>
+        </aside>
+      )}
+    </div>
   );
 }
 
@@ -1102,9 +1255,14 @@ function App() {
         <Feed profile={profile} />
         <section className="right-rail">
           <VoiceRoom profile={profile} />
-          <ChatPanel profile={profile} />
+          <section className="side-card glass-card chants-card">
+            <span className="eyebrow">PIRAEUS BOARD</span>
+            <h2>Clean red-white community</h2>
+            <p>Use the feed for public member posts and the floating messenger for private encrypted group talk.</p>
+          </section>
         </section>
       </main>
+      <ChatPanel profile={profile} />
       <footer className="footer-note">
         Independent fan project. Official club marks/assets are not bundled; add only assets you are allowed to use in public/brand/.
       </footer>

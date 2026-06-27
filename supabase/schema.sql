@@ -3,7 +3,8 @@
 -- Then run: select public.make_admin_invite();
 -- Copy the returned token and use it to register the owner/admin account.
 
-create extension if not exists pgcrypto;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 create extension if not exists citext;
 
 -- Profiles are anonymous for normal users: no email, phone, legal name, or ID is stored here.
@@ -23,7 +24,7 @@ create table if not exists public.profiles (
 );
 
 create table if not exists public.invites (
-  id uuid primary key default gen_random_uuid(),
+  id uuid primary key default extensions.gen_random_uuid(),
   token_hash text not null unique,
   invite_role text not null default 'member' check (invite_role in ('member', 'moderator', 'admin')),
   created_by uuid references public.profiles(id) on delete set null,
@@ -56,7 +57,7 @@ begin
 end $$;
 
 create table if not exists public.posts (
-  id uuid primary key default gen_random_uuid(),
+  id uuid primary key default extensions.gen_random_uuid(),
   author_id uuid not null references public.profiles(id) on delete cascade,
   kind text not null default 'post' check (kind in ('post', 'news', 'image', 'video')),
   content text not null,
@@ -71,7 +72,7 @@ create table if not exists public.posts (
 );
 
 create table if not exists public.comments (
-  id uuid primary key default gen_random_uuid(),
+  id uuid primary key default extensions.gen_random_uuid(),
   post_id uuid not null references public.posts(id) on delete cascade,
   author_id uuid not null references public.profiles(id) on delete cascade,
   body text not null,
@@ -89,7 +90,7 @@ create table if not exists public.post_likes (
 -- Group chat messages are stored only as ciphertext.
 -- Decryption happens in the browser with the room passphrase.
 create table if not exists public.encrypted_messages (
-  id uuid primary key default gen_random_uuid(),
+  id uuid primary key default extensions.gen_random_uuid(),
   sender_id uuid not null references public.profiles(id) on delete cascade,
   ciphertext text not null,
   iv text not null,
@@ -123,7 +124,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
   select exists (
     select 1 from public.profiles
@@ -136,7 +137,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
   select exists (
     select 1 from public.profiles
@@ -150,7 +151,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
   select public.is_staff(check_user);
 $$;
@@ -159,7 +160,7 @@ create or replace function public.create_invite(days_valid integer default 30)
 returns text
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   raw_token text;
@@ -174,10 +175,10 @@ begin
   end if;
 
   valid_days := greatest(1, least(coalesce(days_valid, 30), 90));
-  raw_token := lower(encode(gen_random_bytes(24), 'hex'));
+  raw_token := lower(encode(extensions.gen_random_bytes(24), 'hex'));
 
   insert into public.invites (token_hash, invite_role, created_by, expires_at)
-  values (encode(digest(raw_token, 'sha256'), 'hex'), 'member', auth.uid(), now() + make_interval(days => valid_days));
+  values (encode(extensions.digest(raw_token, 'sha256'), 'hex'), 'member', auth.uid(), now() + make_interval(days => valid_days));
 
   return raw_token;
 end;
@@ -187,7 +188,7 @@ create or replace function public.accept_invite(raw_token text, chosen_handle te
 returns public.profiles
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_hash text;
@@ -224,7 +225,7 @@ begin
     raise exception 'Display name must be 1-48 characters';
   end if;
 
-  v_hash := encode(digest(trim(raw_token), 'sha256'), 'hex');
+  v_hash := encode(extensions.digest(trim(raw_token)::text, 'sha256'::text), 'hex');
 
   select * into v_invite
   from public.invites
@@ -260,17 +261,17 @@ create or replace function public.make_admin_invite(days_valid integer default 7
 returns text
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   raw_token text;
   valid_days integer;
 begin
   valid_days := greatest(1, least(coalesce(days_valid, 7), 30));
-  raw_token := 'founder-' || lower(encode(gen_random_bytes(18), 'hex'));
+  raw_token := 'founder-' || lower(encode(extensions.gen_random_bytes(18), 'hex'));
 
   insert into public.invites (token_hash, invite_role, created_by, expires_at)
-  values (encode(digest(raw_token, 'sha256'), 'hex'), 'admin', null, now() + make_interval(days => valid_days));
+  values (encode(extensions.digest(raw_token, 'sha256'), 'hex'), 'admin', null, now() + make_interval(days => valid_days));
 
   return raw_token;
 end;
@@ -281,7 +282,7 @@ create or replace function public.make_founder_invite()
 returns text
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 begin
   return public.make_admin_invite(7);
@@ -292,7 +293,7 @@ create or replace function public.admin_set_user_role(target_user uuid, new_role
 returns public.profiles
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_profile public.profiles%rowtype;
@@ -425,6 +426,28 @@ drop policy if exists messages_delete_self_or_admin on public.encrypted_messages
 create policy messages_delete_self_or_admin on public.encrypted_messages
 for delete to authenticated
 using (sender_id = auth.uid() or public.is_staff());
+
+
+
+-- Realtime support for live feed, comments and the floating encrypted messenger.
+-- Supabase Broadcast works without this, but Postgres changes need the tables in supabase_realtime.
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table public.posts;
+  exception when duplicate_object or undefined_object then null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.comments;
+  exception when duplicate_object or undefined_object then null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.encrypted_messages;
+  exception when duplicate_object or undefined_object then null;
+  end;
+end $$;
 
 -- Public image bucket for blog images. Supabase Storage handles the actual files.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

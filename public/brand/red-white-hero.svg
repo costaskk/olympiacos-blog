@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#08090d"/>
+      <stop offset="0.5" stop-color="#151722"/>
+      <stop offset="1" stop-color="#3a0009"/>
+    </linearGradient>
+    <radialGradient id="r" cx="20%" cy="15%" r="55%">
+      <stop offset="0" stop-color="#ff3148" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#ff3148" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80 0H0v80" fill="none" stroke="#fff" stroke-opacity="0.07" stroke-width="2"/>
+    </pattern>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <rect width="1600" height="900" fill="url(#r)"/>
+  <rect width="1600" height="900" fill="url(#grid)"/>
+  <g opacity="0.55" transform="rotate(-15 800 450)">
+    <rect x="-180" y="250" width="1980" height="84" fill="#d10019"/>
+    <rect x="-180" y="360" width="1980" height="46" fill="#ffffff" fill-opacity="0.92"/>
+    <rect x="-180" y="436" width="1980" height="84" fill="#d10019"/>
+    <rect x="-180" y="548" width="1980" height="46" fill="#ffffff" fill-opacity="0.72"/>
+  </g>
+  <g opacity="0.22" fill="#fff" font-family="Arial Black, Arial, sans-serif" font-weight="900">
+    <text x="920" y="190" font-size="120" letter-spacing="-8">ΘΡΥΛΟΣ</text>
+    <text x="1060" y="310" font-size="72" letter-spacing="8">AGORA</text>
+    <text x="980" y="760" font-size="88" letter-spacing="3">GATE 7</text>
+  </g>
+  <circle cx="250" cy="720" r="190" fill="#d10019" fill-opacity="0.16"/>
+  <circle cx="250" cy="720" r="118" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="22"/>
+</svg>

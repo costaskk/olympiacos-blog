@@ -1,6 +1,6 @@
 # Thrylos Agora
 
-A clean red-white private fan blog with anonymous invite-only registration, admin/moderator controls, image/news/YouTube posts, comments, one-use invitations, an encrypted browser-side group chat, and a live WebRTC voice room.
+A modern red-white private fan blog with anonymous invite-only registration, admin/moderator controls, image/news/YouTube posts, comments, one-use invitations, a floating live encrypted messenger, typing indicators, and a WebRTC voice room.
 
 This is an independent fan project. It does **not** bundle official Olympiacos logos, club marks, photos, or copyrighted assets. The project includes brand asset slots so you can add official files yourself only if you have the right to use them.
 
@@ -12,10 +12,21 @@ This is an independent fan project. It does **not** bundle official Olympiacos l
 - One-use invite system: members can generate unique registration links.
 - Blog feed: text posts, news links, images, YouTube embeds, and comments.
 - Supabase Storage uploads for images.
-- Encrypted group messenger: messages are AES-GCM encrypted in the browser before they are stored.
+- Floating encrypted messenger: opens from the lower-right corner, updates live, can be closed/reopened, and shows when one or multiple users are typing.
+- Encrypted group messages: messages are AES-GCM encrypted in the browser before they are stored.
 - Live voice room: WebRTC microphone chat using Supabase Realtime as the free signaling layer.
 - Privacy deterrents: blur/shield on tab blur, watermark, disabled right-click, disabled printing.
-- Brand slots: drop your allowed logo/background into `public/brand/` and the UI uses them automatically.
+- Modern blog layout: hero board, cleaner post cards, sticky filters, red-white custom artwork, and brand slots for allowed official images.
+
+## v3 improvements
+
+- Blog UI redesigned into a more modern private-board layout.
+- The encrypted messenger is now a lower-right popup instead of a sidebar.
+- Chat messages appear live without refreshing.
+- Typing indicators show `name is typing`, `A and B are typing`, or `3 people are typing`.
+- Added original red-white SVG artwork so the site looks customized even before you add official assets.
+- Supabase schema now adds feed/comments/messages to Realtime publication where supported.
+- `package-lock.json` was removed and `.npmrc` points to the public npm registry to avoid private registry install errors.
 
 ## Important security limitations
 
@@ -50,7 +61,14 @@ Recommended:
 - `olympiacos-logo.png`: square PNG, 512x512 or larger, transparent background if possible.
 - `olympiacos-hero.jpg`: wide stadium/team/fan image, ideally 1920x1080.
 
-After adding them, commit and push again:
+The project also includes original non-official fallback artwork:
+
+```txt
+public/brand/community-crest.svg
+public/brand/red-white-hero.svg
+```
+
+After adding official/allowed assets, commit and push again:
 
 ```bash
 git add public/brand
@@ -58,7 +76,7 @@ git commit -m "Add brand assets"
 git push
 ```
 
-If the files are missing, the app falls back to the red-white Θ placeholder.
+If the official files are missing, the app falls back to the included original red-white fan artwork (`community-crest.svg` and `red-white-hero.svg`).
 
 ## Setup
 
@@ -180,10 +198,12 @@ You can:
 
 Safety rule: the only admin account cannot demote itself.
 
-## How the encrypted group text chat works
+## How the floating encrypted group messenger works
+
+The messenger is fixed to the lower-right corner. Users can close it and reopen it without leaving the feed. New messages load live through Supabase Realtime/Broadcast, and typing indicators are broadcast to other connected members.
 
 1. Members agree on a shared room passphrase outside the site.
-2. They enter it into the chat panel.
+2. They enter it into the popup messenger.
 3. The browser derives an AES-GCM key from the passphrase using PBKDF2.
 4. Only ciphertext, IV, salt, sender ID, and timestamp are stored in Supabase.
 5. Supabase admins can see metadata and ciphertext, but not readable chat text unless they know the passphrase.
@@ -222,6 +242,8 @@ This version is best for a small private group. For a large always-on voice serv
 │   ├── favicon.svg
 │   └── brand/
 │       ├── README.md
+│       ├── community-crest.svg    # included non-official fallback
+│       ├── red-white-hero.svg     # included non-official fallback
 │       ├── olympiacos-logo.png    # add yourself if allowed
 │       └── olympiacos-hero.jpg    # add yourself if allowed
 ├── src/
