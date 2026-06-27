@@ -242,3 +242,22 @@ public/brand/red-white-hero.svg
 ### Replacing the default logo
 
 Log in with an admin account, click **Site settings**, then use **Site logo → Replace default logo**. Upload a PNG/JPG/WebP/GIF/SVG file, click **Save site settings**, and the new logo will replace the fallback crest across the top bar, invite page, privacy shield, chat/app branding, and browser tab icon. You can also paste a direct logo URL or click **Use default crest** to reset it.
+
+## v5.2 chat and voice update
+
+This version fixes the floating chat layout after switching between Messages and Voice chat. The popup now uses a stable flex layout so the message input and Send button stay aligned at the bottom.
+
+Voice chat additions:
+
+- join with microphone or join as listener
+- live room timer
+- self mute/unmute
+- drop mic and re-enable mic
+- automatic live presence/member updates
+- the earliest joined member becomes host
+- host can make/remove sub-hosts
+- host and sub-hosts can allow/take mic rights
+- host and sub-hosts can mute a member or mute all
+- local browser recording with downloadable `.webm` audio file
+
+The recorder saves locally in the browser of the person who starts the recording. Tell members before recording a call.

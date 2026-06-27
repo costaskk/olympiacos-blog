@@ -1171,15 +1171,35 @@ function ChatPanel({ profile }) {
   );
 }
 
-function RemoteAudio({ stream, label }) {
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '00:00';
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (value) => String(value).padStart(2, '0');
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`;
+}
+
+function voiceRoleLabel(role) {
+  if (role === 'host') return 'Host';
+  if (role === 'cohost') return 'Sub-host';
+  if (role === 'speaker') return 'Mic';
+  return 'Listener';
+}
+
+function RemoteAudio({ stream, label, role = 'speaker', muted = false, color = '#e31b2f' }) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current) ref.current.srcObject = stream;
   }, [stream]);
   return (
-    <div className="voice-peer">
+    <div className="voice-peer" style={{ '--member-color': color }}>
       <span className="voice-dot" />
-      <strong>{label}</strong>
+      <div className="voice-peer-main">
+        <strong>{label}</strong>
+        <small>{voiceRoleLabel(role)}{muted ? ' · muted' : ''}</small>
+      </div>
       <audio ref={ref} autoPlay playsInline />
     </div>
   );
@@ -1193,11 +1213,49 @@ function VoiceRoom({ profile, compact = false }) {
   const [remoteNames, setRemoteNames] = useState({});
   const [remoteStates, setRemoteStates] = useState({});
   const [voiceMembers, setVoiceMembers] = useState({});
+  const [roomRoles, setRoomRoles] = useState({});
+  const [localRole, setLocalRole] = useState('listener');
+  const [micAllowed, setMicAllowed] = useState(false);
+  const [localMicActive, setLocalMicActive] = useState(false);
+  const [hostId, setHostId] = useState(null);
+  const hostIdRef = useRef(null);
+  const [roomStartedAt, setRoomStartedAt] = useState(null);
+  const [nowTick, setNowTick] = useState(Date.now());
+  const [recording, setRecording] = useState(false);
+  const [recordingUrl, setRecordingUrl] = useState('');
+  const [recordingName, setRecordingName] = useState('');
+  const [recordingError, setRecordingError] = useState('');
+
   const channelRef = useRef(null);
   const localStreamRef = useRef(null);
   const peersRef = useRef(new Map());
   const activeRef = useRef(false);
   const knownMembersRef = useRef(new Set());
+  const joinedAtRef = useRef(null);
+  const mutedRef = useRef(false);
+  const localRoleRef = useRef('listener');
+  const micAllowedRef = useRef(false);
+  const roomRolesRef = useRef({});
+  const recordingRef = useRef(false);
+  const recorderRef = useRef(null);
+  const recordedChunksRef = useRef([]);
+  const recordingAudioContextRef = useRef(null);
+  const recordingDestinationRef = useRef(null);
+  const recordingSourcesRef = useRef(new Map());
+
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
+  useEffect(() => { localRoleRef.current = localRole; }, [localRole]);
+  useEffect(() => { micAllowedRef.current = micAllowed; }, [micAllowed]);
+  useEffect(() => { roomRolesRef.current = roomRoles; }, [roomRoles]);
+  useEffect(() => { hostIdRef.current = hostId; }, [hostId]);
+  useEffect(() => { recordingRef.current = recording; }, [recording]);
+
+
+  useEffect(() => {
+    if (!joined) return undefined;
+    const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [joined]);
 
   const shouldInitiate = useCallback((peerId) => {
     if (!peerId || peerId === profile.id) return false;
@@ -1208,6 +1266,29 @@ function VoiceRoom({ profile, compact = false }) {
     if (!channelRef.current) return;
     await channelRef.current.send({ type: 'broadcast', event, payload }).catch(() => null);
   }, []);
+
+  const trackVoiceState = useCallback(async (overrides = {}) => {
+    if (!channelRef.current || !joinedAtRef.current) return;
+    await channelRef.current.track({
+      name: displayUser(profile),
+      color: userColor(profile),
+      muted: mutedRef.current,
+      role: localRoleRef.current,
+      mic_allowed: micAllowedRef.current,
+      has_mic: Boolean(localStreamRef.current),
+      in_voice: true,
+      joined_at: joinedAtRef.current,
+      ...overrides,
+    }).catch(() => null);
+  }, [profile]);
+
+  useEffect(() => {
+    if (joined && hostId === profile.id && !micAllowedRef.current) {
+      micAllowedRef.current = true;
+      setMicAllowed(true);
+      trackVoiceState({ role: 'host', mic_allowed: true });
+    }
+  }, [joined, hostId, profile.id, trackVoiceState]);
 
   const closePeer = useCallback((peerId) => {
     const pc = peersRef.current.get(peerId);
@@ -1230,6 +1311,35 @@ function VoiceRoom({ profile, compact = false }) {
       return next;
     });
   }, []);
+
+  const renegotiatePeer = useCallback(async (peerId, peerName = 'Member') => {
+    if (!activeRef.current || peerId === profile.id) return;
+    const pc = peersRef.current.get(peerId);
+    if (!pc || pc.signalingState === 'closed') return;
+    try {
+      const offer = await pc.createOffer({ offerToReceiveAudio: true });
+      await pc.setLocalDescription(offer);
+      await sendBroadcast('voice-signal', {
+        from: profile.id,
+        fromName: displayUser(profile),
+        to: peerId,
+        kind: 'offer',
+        sdp: offer,
+        peerName,
+      });
+    } catch (err) {
+      console.warn('Voice renegotiation failed', err);
+    }
+  }, [profile, sendBroadcast]);
+
+  const renegotiateAll = useCallback(async () => {
+    const jobs = [];
+    peersRef.current.forEach((pc, peerId) => {
+      const member = voiceMembers[peerId];
+      jobs.push(renegotiatePeer(peerId, member?.name || remoteNames[peerId] || 'Member'));
+    });
+    await Promise.allSettled(jobs);
+  }, [remoteNames, renegotiatePeer, voiceMembers]);
 
   const getPeer = useCallback((peerId, peerName = 'Member') => {
     if (peersRef.current.has(peerId)) return peersRef.current.get(peerId);
@@ -1271,20 +1381,12 @@ function VoiceRoom({ profile, compact = false }) {
   const createOffer = useCallback(async (peerId, peerName) => {
     if (!activeRef.current || peerId === profile.id) return;
     try {
-      const pc = getPeer(peerId, peerName);
-      const offer = await pc.createOffer({ offerToReceiveAudio: true });
-      await pc.setLocalDescription(offer);
-      await sendBroadcast('voice-signal', {
-        from: profile.id,
-        fromName: displayUser(profile),
-        to: peerId,
-        kind: 'offer',
-        sdp: offer,
-      });
+      getPeer(peerId, peerName);
+      await renegotiatePeer(peerId, peerName);
     } catch (err) {
       console.warn('Voice offer failed', err);
     }
-  }, [getPeer, profile, sendBroadcast]);
+  }, [getPeer, profile.id, renegotiatePeer]);
 
   const handleSignal = useCallback(async (payload) => {
     if (!activeRef.current || payload.to !== profile.id || payload.from === profile.id) return;
@@ -1311,18 +1413,33 @@ function VoiceRoom({ profile, compact = false }) {
     }
   }, [getPeer, profile, sendBroadcast]);
 
+  const getEffectiveRole = useCallback((userId, info = {}) => {
+    if (userId === hostId) return 'host';
+    return roomRolesRef.current[userId]?.role || info.role || 'listener';
+  }, [hostId]);
+
   const syncPresence = useCallback((channel) => {
     const state = channel.presenceState();
     const nextMembers = {};
     Object.entries(state).forEach(([userId, presences]) => {
       const latest = presences?.[presences.length - 1] || {};
+      const roleOverride = roomRolesRef.current[userId]?.role;
       nextMembers[userId] = {
         id: userId,
         name: latest.name || (userId === profile.id ? displayUser(profile) : 'Member'),
         color: latest.color || '#e31b2f',
         muted: Boolean(latest.muted),
+        role: roleOverride || latest.role || 'listener',
+        micAllowed: Boolean(latest.mic_allowed),
+        hasMic: Boolean(latest.has_mic),
+        joinedAt: latest.joined_at || new Date().toISOString(),
       };
     });
+
+    const sorted = Object.values(nextMembers).sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime());
+    const nextHost = sorted[0]?.id || null;
+    setHostId(nextHost);
+    setRoomStartedAt(sorted[0]?.joinedAt || joinedAtRef.current);
     setVoiceMembers(nextMembers);
 
     if (!activeRef.current) return;
@@ -1333,16 +1450,107 @@ function VoiceRoom({ profile, compact = false }) {
     });
   }, [createOffer, profile, shouldInitiate]);
 
+  const setLocalMuted = useCallback(async (nextMuted) => {
+    localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !nextMuted; });
+    mutedRef.current = nextMuted;
+    setMuted(nextMuted);
+    await trackVoiceState({ muted: nextMuted });
+    await sendBroadcast('voice-state', {
+      from: profile.id,
+      name: displayUser(profile),
+      muted: nextMuted,
+      hasMic: Boolean(localStreamRef.current),
+      role: localRoleRef.current,
+    });
+  }, [profile, sendBroadcast, trackVoiceState]);
+
+  const enableMic = useCallback(async () => {
+    setVoiceError('');
+    if (!micAllowedRef.current && localRoleRef.current !== 'host' && localRoleRef.current !== 'cohost' && hostIdRef.current !== profile.id) {
+      setVoiceError('A host or sub-host needs to give you mic rights first.');
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setVoiceError('This browser does not support microphone voice chat.');
+      return;
+    }
+    if (localStreamRef.current) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
+      localStreamRef.current = stream;
+      setLocalMicActive(true);
+      mutedRef.current = false;
+      setMuted(false);
+      peersRef.current.forEach((pc) => {
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      });
+      await trackVoiceState({ muted: false, has_mic: true, mic_allowed: true });
+      await sendBroadcast('voice-state', {
+        from: profile.id,
+        name: displayUser(profile),
+        muted: false,
+        hasMic: true,
+        role: localRoleRef.current,
+      });
+      await renegotiateAll();
+    } catch (err) {
+      setVoiceError(err.message || 'Microphone permission was denied.');
+    }
+  }, [profile, renegotiateAll, sendBroadcast, trackVoiceState]);
+
+  const disableMic = useCallback(async (forcedMuted = true) => {
+    const stream = localStreamRef.current;
+    if (stream) {
+      peersRef.current.forEach((pc) => {
+        pc.getSenders().forEach((sender) => {
+          if (sender.track && stream.getTracks().includes(sender.track)) {
+            try { pc.removeTrack(sender); } catch { /* ignored */ }
+          }
+        });
+      });
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    localStreamRef.current = null;
+    setLocalMicActive(false);
+    mutedRef.current = forcedMuted;
+    setMuted(forcedMuted);
+    await trackVoiceState({ muted: forcedMuted, has_mic: false });
+    await sendBroadcast('voice-state', {
+      from: profile.id,
+      name: displayUser(profile),
+      muted: forcedMuted,
+      hasMic: false,
+      role: localRoleRef.current,
+    });
+    await renegotiateAll();
+  }, [profile, renegotiateAll, sendBroadcast, trackVoiceState]);
+
+  const stopRecording = useCallback(() => {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    setRecording(false);
+  }, []);
+
   const stopVoice = useCallback(async () => {
     activeRef.current = false;
     setJoined(false);
     setMuted(false);
+    setMicAllowed(false);
+    setLocalRole('listener');
+    setLocalMicActive(false);
     setRemoteStreams({});
     setRemoteNames({});
     setRemoteStates({});
     setVoiceMembers({});
+    setHostId(null);
+    setRoomStartedAt(null);
     knownMembersRef.current.clear();
 
+    if (recordingRef.current) stopRecording();
     await sendBroadcast('voice-leave', { from: profile.id });
 
     if (channelRef.current) {
@@ -1356,23 +1564,57 @@ function VoiceRoom({ profile, compact = false }) {
 
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
-  }, [profile.id, sendBroadcast]);
+    joinedAtRef.current = null;
+  }, [profile.id, sendBroadcast, stopRecording]);
 
-  async function startVoice() {
+  const applyRoleChange = useCallback(async (targetId, role) => {
+    setRoomRoles((current) => ({ ...current, [targetId]: { role, updatedAt: Date.now() } }));
+    if (targetId !== profile.id) return;
+
+    localRoleRef.current = role;
+    setLocalRole(role);
+    const allowed = role === 'speaker' || role === 'cohost' || role === 'host';
+    micAllowedRef.current = allowed;
+    setMicAllowed(allowed);
+
+    if (!allowed) await disableMic(true);
+    await trackVoiceState({ role, mic_allowed: allowed, has_mic: Boolean(localStreamRef.current), muted: mutedRef.current });
+  }, [disableMic, profile.id, trackVoiceState]);
+
+  async function startVoice(mode) {
     setVoiceError('');
-    if (!navigator.mediaDevices?.getUserMedia) {
+    setRecordingError('');
+    if (joined) return;
+
+    const wantsMic = mode === 'speaker';
+    if (wantsMic && !navigator.mediaDevices?.getUserMedia) {
       setVoiceError('This browser does not support microphone voice chat.');
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false,
-      });
-      localStreamRef.current = stream;
+      joinedAtRef.current = new Date().toISOString();
       activeRef.current = true;
       setJoined(true);
+      setNowTick(Date.now());
+      setRoomStartedAt(joinedAtRef.current);
+      micAllowedRef.current = wantsMic;
+      setMicAllowed(wantsMic);
+      localRoleRef.current = wantsMic ? 'speaker' : 'listener';
+      setLocalRole(wantsMic ? 'speaker' : 'listener');
+      mutedRef.current = !wantsMic;
+      setMuted(!wantsMic);
+
+      if (wantsMic) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: false,
+        });
+        localStreamRef.current = stream;
+        setLocalMicActive(true);
+        mutedRef.current = false;
+        setMuted(false);
+      }
 
       const channel = supabase
         .channel('live-voice-room', { config: { presence: { key: profile.id }, broadcast: { self: false } } })
@@ -1381,13 +1623,43 @@ function VoiceRoom({ profile, compact = false }) {
           if (!payload || payload.from === profile.id) return;
           setRemoteNames((current) => ({ ...current, [payload.from]: payload.name || 'Member' }));
           if (shouldInitiate(payload.from)) createOffer(payload.from, payload.name);
+          if (profile.id === hostIdRef.current && Object.keys(roomRolesRef.current).length > 0) {
+            channel.send({
+              type: 'broadcast',
+              event: 'voice-role-sync',
+              payload: { from: profile.id, roles: roomRolesRef.current },
+            }).catch(() => null);
+          }
         })
         .on('broadcast', { event: 'voice-leave' }, ({ payload }) => {
-          if (payload?.from !== profile.id) closePeer(payload.from);
+          if (payload?.from && payload.from !== profile.id) closePeer(payload.from);
         })
         .on('broadcast', { event: 'voice-state' }, ({ payload }) => {
           if (!payload || payload.from === profile.id) return;
-          setRemoteStates((current) => ({ ...current, [payload.from]: { muted: Boolean(payload.muted) } }));
+          setRemoteStates((current) => ({
+            ...current,
+            [payload.from]: {
+              muted: Boolean(payload.muted),
+              hasMic: Boolean(payload.hasMic),
+              role: payload.role || current[payload.from]?.role,
+            },
+          }));
+        })
+        .on('broadcast', { event: 'voice-role' }, async ({ payload }) => {
+          if (!payload?.targetId || !payload?.role) return;
+          await applyRoleChange(payload.targetId, payload.role);
+        })
+        .on('broadcast', { event: 'voice-role-sync' }, ({ payload }) => {
+          if (!payload?.roles || payload.from === profile.id) return;
+          setRoomRoles((current) => ({ ...current, ...payload.roles }));
+          const myRole = payload.roles?.[profile.id]?.role;
+          if (myRole) applyRoleChange(profile.id, myRole);
+        })
+        .on('broadcast', { event: 'voice-force-mute' }, ({ payload }) => {
+          if (payload?.targetId === profile.id) setLocalMuted(true);
+        })
+        .on('broadcast', { event: 'voice-mute-all' }, ({ payload }) => {
+          if (payload?.from !== profile.id) setLocalMuted(true);
         })
         .on('broadcast', { event: 'voice-signal' }, ({ payload }) => {
           handleSignal(payload);
@@ -1397,15 +1669,18 @@ function VoiceRoom({ profile, compact = false }) {
             await channel.track({
               name: displayUser(profile),
               color: userColor(profile),
-              muted: false,
+              muted: mutedRef.current,
+              role: localRoleRef.current,
+              mic_allowed: micAllowedRef.current,
+              has_mic: Boolean(localStreamRef.current),
               in_voice: true,
-              joined_at: new Date().toISOString(),
+              joined_at: joinedAtRef.current,
             });
             syncPresence(channel);
             await channel.send({
               type: 'broadcast',
               event: 'voice-join',
-              payload: { from: profile.id, name: displayUser(profile), color: userColor(profile) },
+              payload: { from: profile.id, name: displayUser(profile), color: userColor(profile), role: localRoleRef.current },
             });
           }
         });
@@ -1414,75 +1689,234 @@ function VoiceRoom({ profile, compact = false }) {
     } catch (err) {
       activeRef.current = false;
       setJoined(false);
+      setLocalMicActive(false);
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
-      setVoiceError(err.message || 'Microphone permission was denied.');
+      setVoiceError(err.message || 'Could not join the voice room.');
     }
   }
 
   async function toggleMute() {
-    const next = !muted;
-    localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !next; });
-    setMuted(next);
-    await channelRef.current?.track({
-      name: displayUser(profile),
-      color: userColor(profile),
-      muted: next,
-      in_voice: true,
-      joined_at: new Date().toISOString(),
-    }).catch(() => null);
-    await sendBroadcast('voice-state', { from: profile.id, name: displayUser(profile), muted: next });
+    await setLocalMuted(!mutedRef.current);
   }
+
+  async function assignVoiceRole(targetId, role) {
+    await applyRoleChange(targetId, role);
+    await sendBroadcast('voice-role', {
+      from: profile.id,
+      fromName: displayUser(profile),
+      targetId,
+      role,
+      at: Date.now(),
+    });
+  }
+
+  async function forceMute(targetId) {
+    await sendBroadcast('voice-force-mute', { from: profile.id, targetId });
+  }
+
+  async function muteAll() {
+    await setLocalMuted(true);
+    await sendBroadcast('voice-mute-all', { from: profile.id, fromName: displayUser(profile) });
+  }
+
+  function connectStreamToRecorder(stream, key) {
+    const audioContext = recordingAudioContextRef.current;
+    const destination = recordingDestinationRef.current;
+    if (!audioContext || !destination || !stream || recordingSourcesRef.current.has(key)) return;
+    try {
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(destination);
+      recordingSourcesRef.current.set(key, source);
+    } catch (err) {
+      console.warn('Could not add stream to recording mix', err);
+    }
+  }
+
+  function startRecording() {
+    setRecordingError('');
+    if (!joined) return;
+    if (!window.MediaRecorder) {
+      setRecordingError('This browser does not support voice recording.');
+      return;
+    }
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      setRecordingError('This browser does not support audio mixing for recording.');
+      return;
+    }
+
+    try {
+      if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+      setRecordingUrl('');
+      setRecordingName('');
+      recordedChunksRef.current = [];
+      recordingSourcesRef.current.clear();
+
+      const audioContext = new AudioContextClass();
+      const destination = audioContext.createMediaStreamDestination();
+      recordingAudioContextRef.current = audioContext;
+      recordingDestinationRef.current = destination;
+
+      if (localStreamRef.current) connectStreamToRecorder(localStreamRef.current, `local-${profile.id}`);
+      Object.entries(remoteStreams).forEach(([peerId, stream]) => connectStreamToRecorder(stream, `remote-${peerId}`));
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+      const recorder = new MediaRecorder(destination.stream, mimeType ? { mimeType } : undefined);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) recordedChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType || 'audio/webm' });
+        const url = URL.createObjectURL(blob);
+        const name = `thrylos-voice-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`;
+        setRecordingUrl(url);
+        setRecordingName(name);
+        recordingAudioContextRef.current?.close().catch(() => null);
+        recordingAudioContextRef.current = null;
+        recordingDestinationRef.current = null;
+        recordingSourcesRef.current.clear();
+      };
+      recorder.start(1000);
+      setRecording(true);
+    } catch (err) {
+      setRecordingError(err.message || 'Could not start recording.');
+      setRecording(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!recording) return;
+    if (localStreamRef.current) connectStreamToRecorder(localStreamRef.current, `local-${profile.id}`);
+    Object.entries(remoteStreams).forEach(([peerId, stream]) => connectStreamToRecorder(stream, `remote-${peerId}`));
+  }, [recording, remoteStreams, localMicActive, profile.id]);
 
   useEffect(() => () => { stopVoice(); }, [stopVoice]);
 
+  const roomStartedTime = roomStartedAt ? new Date(roomStartedAt).getTime() : null;
+  const elapsed = joined && roomStartedTime ? formatDuration(nowTick - roomStartedTime) : '00:00';
+  const selfRole = joined && profile.id === hostId ? 'host' : localRole;
+  const canUseMic = micAllowed || selfRole === 'host' || selfRole === 'cohost';
+  const canModerateVoice = joined && (selfRole === 'host' || selfRole === 'cohost' || profile.role === 'admin');
+  const canManageCohosts = joined && (selfRole === 'host' || profile.role === 'admin');
   const memberEntries = Object.entries(voiceMembers).filter(([id]) => id !== profile.id);
-  const memberCount = Object.keys(voiceMembers).length;
+  const memberCount = joined ? Math.max(1, Object.keys(voiceMembers).length) : 0;
 
   return (
     <aside className={`voice-card ${compact ? 'inside-chat' : 'glass-card'}`}>
-      <div className="voice-head">
+      <div className="voice-head improved">
         <div>
           <span className="eyebrow">VOICE ROOM</span>
           <h2>Live voice room</h2>
-          <p>Join the group audio room. Members connect live and the room list updates automatically.</p>
+          <p>Join with your microphone or enter as a listener. The room updates live for every member.</p>
         </div>
-        <span className={joined ? 'voice-status on' : 'voice-status'}>{joined ? 'Live' : 'Off'}</span>
+        <div className="voice-status-stack">
+          <span className={joined ? 'voice-status on' : 'voice-status'}>{joined ? 'Live' : 'Off'}</span>
+          {joined && <span className="voice-timer">{elapsed}</span>}
+        </div>
       </div>
 
       {voiceError && <div className="error-box">{voiceError}</div>}
+      {recordingError && <div className="error-box">{recordingError}</div>}
 
-      <div className="voice-actions">
-        {!joined ? (
-          <button className="primary-btn full" type="button" onClick={startVoice}>Join voice</button>
-        ) : (
-          <>
-            <button className="ghost-btn" type="button" onClick={toggleMute}>{muted ? 'Unmute mic' : 'Mute mic'}</button>
+      {!joined ? (
+        <div className="join-mode-grid">
+          <button className="primary-btn" type="button" onClick={() => startVoice('speaker')}>Join with mic</button>
+          <button className="ghost-btn" type="button" onClick={() => startVoice('listener')}>Listen only</button>
+        </div>
+      ) : (
+        <>
+          <div className="voice-room-summary">
+            <span><strong>{memberCount}</strong><small>members</small></span>
+            <span><strong>{voiceRoleLabel(selfRole)}</strong><small>your role</small></span>
+            <span><strong>{localMicActive ? (muted ? 'Muted' : 'Open') : 'Off'}</strong><small>your mic</small></span>
+          </div>
+
+          <div className="voice-actions upgraded">
+            {canUseMic ? (
+              localMicActive ? (
+                <>
+                  <button className="ghost-btn" type="button" onClick={toggleMute}>{muted ? 'Unmute self' : 'Mute self'}</button>
+                  <button className="ghost-btn" type="button" onClick={() => disableMic(true)}>Drop mic</button>
+                </>
+              ) : (
+                <button className="primary-btn" type="button" onClick={enableMic}>Enable mic</button>
+              )
+            ) : (
+              <span className="listener-pill">Listener mode</span>
+            )}
+            {canModerateVoice && <button className="ghost-btn" type="button" onClick={muteAll}>Mute all</button>}
+            {!recording ? (
+              <button className="ghost-btn record-btn" type="button" onClick={startRecording}>Record</button>
+            ) : (
+              <button className="danger-btn" type="button" onClick={stopRecording}>Stop recording</button>
+            )}
             <button className="danger-btn" type="button" onClick={stopVoice}>Leave</button>
-          </>
-        )}
-      </div>
+          </div>
 
-      <div className="voice-members">
+          {(recording || recordingUrl) && (
+            <div className="recording-box">
+              {recording && <span className="recording-live"><i /> Recording locally…</span>}
+              {recordingUrl && <a className="ghost-link" href={recordingUrl} download={recordingName || 'voice-recording.webm'}>Download recording</a>}
+              <small>Recordings are saved on your device only. Tell members before recording.</small>
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="voice-members upgraded-list">
         <div className="voice-peer self" style={{ '--member-color': userColor(profile) }}>
           <span className="voice-dot" />
-          <strong>{joined ? `${displayUser(profile)} ${muted ? '(muted)' : '(you)'}` : 'Not connected'}</strong>
+          <div className="voice-peer-main">
+            <strong>{joined ? displayUser(profile) : 'Not connected'}</strong>
+            <small>{joined ? `${voiceRoleLabel(selfRole)} · ${localMicActive ? (muted ? 'muted' : 'mic open') : 'no mic'}` : 'Choose how to enter the room'}</small>
+          </div>
         </div>
         {memberEntries.map(([peerId, info]) => {
           const stream = remoteStreams[peerId];
-          const isPeerMuted = remoteStates[peerId]?.muted || info.muted;
-          return stream ? (
-            <RemoteAudio key={peerId} stream={stream} label={`${remoteNames[peerId] || info.name || 'Member'}${isPeerMuted ? ' (muted)' : ''}`} />
-          ) : (
-            <div className="voice-peer waiting" key={peerId} style={{ '--member-color': info.color || '#e31b2f' }}>
-              <span className="voice-dot" />
-              <strong>{info.name || 'Member'} connecting…</strong>
+          const effectiveRole = getEffectiveRole(peerId, info);
+          const state = remoteStates[peerId] || {};
+          const isPeerMuted = Boolean(state.muted || info.muted);
+          const peerName = remoteNames[peerId] || info.name || 'Member';
+          const color = info.color || '#e31b2f';
+          return (
+            <div className="voice-member-row" key={peerId}>
+              {stream ? (
+                <RemoteAudio stream={stream} label={peerName} role={effectiveRole} muted={isPeerMuted} color={color} />
+              ) : (
+                <div className="voice-peer waiting" style={{ '--member-color': color }}>
+                  <span className="voice-dot" />
+                  <div className="voice-peer-main">
+                    <strong>{peerName}</strong>
+                    <small>{voiceRoleLabel(effectiveRole)} · connecting/listening</small>
+                  </div>
+                </div>
+              )}
+              {canModerateVoice && (
+                <div className="voice-control-row">
+                  {canManageCohosts && (
+                    effectiveRole === 'cohost' ? (
+                      <button type="button" className="tiny-action" onClick={() => assignVoiceRole(peerId, 'speaker')}>Remove sub-host</button>
+                    ) : (
+                      <button type="button" className="tiny-action" onClick={() => assignVoiceRole(peerId, 'cohost')}>Make sub-host</button>
+                    )
+                  )}
+                  {effectiveRole === 'listener' ? (
+                    <button type="button" className="tiny-action" onClick={() => assignVoiceRole(peerId, 'speaker')}>Allow mic</button>
+                  ) : (
+                    <button type="button" className="tiny-action" onClick={() => assignVoiceRole(peerId, 'listener')}>Take mic</button>
+                  )}
+                  <button type="button" className="tiny-action danger" onClick={() => forceMute(peerId)}>Mute</button>
+                </div>
+              )}
             </div>
           );
         })}
       </div>
+
       <p className="tiny-note">
-        {joined ? `Members in voice: ${memberCount || 1}. Connections update live.` : 'Press Join voice and allow microphone access.'}
+        {joined ? 'Host controls are live. Sub-hosts can mute members, mute all, and manage mic rights.' : 'Use listener mode when you only want to hear the room.'}
       </p>
     </aside>
   );
