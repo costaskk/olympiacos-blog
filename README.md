@@ -1,94 +1,62 @@
 # Thrylos Agora
 
-A modern red-white private fan blog with anonymous invite-only registration, admin/moderator controls, image/news/YouTube posts, comments, one-use invitations, a floating live encrypted messenger, typing indicators, and a WebRTC voice room.
+Modern red-white private fan blog with invite-only anonymous registration, member posts, images, news links, YouTube embeds, comments, live group chat, typing indicators, user colour customization, a voice room inside the group chat popup, and admin-controlled site branding.
 
-This is an independent fan project. It does **not** bundle official Olympiacos logos, club marks, photos, or copyrighted assets. The project includes brand asset slots so you can add official files yourself only if you have the right to use them.
+This project includes original red-white fallback artwork. Official club logos/photos are not bundled. Add only assets you are allowed to use.
 
-## What it does
+## v4 changes
 
-- Anonymous registration: normal users join with only an invite link, handle, and display name.
-- Dedicated admin/founder setup: create a one-use admin invite from Supabase SQL and register your owner account.
-- Admin panel: see recent members, change member/mod/admin roles, delete posts/comments/messages as staff.
-- One-use invite system: members can generate unique registration links.
-- Blog feed: text posts, news links, images, YouTube embeds, and comments.
-- Supabase Storage uploads for images.
-- Floating encrypted messenger: opens from the lower-right corner, updates live, can be closed/reopened, and shows when one or multiple users are typing.
-- Encrypted group messages: messages are AES-GCM encrypted in the browser before they are stored.
-- Live voice room: WebRTC microphone chat using Supabase Realtime as the free signaling layer.
-- Privacy deterrents: blur/shield on tab blur, watermark, disabled right-click, disabled printing.
-- Modern blog layout: hero board, cleaner post cards, sticky filters, red-white custom artwork, and brand slots for allowed official images.
-
-## v3 improvements
-
-- Blog UI redesigned into a more modern private-board layout.
-- The encrypted messenger is now a lower-right popup instead of a sidebar.
-- Chat messages appear live without refreshing.
-- Typing indicators show `name is typing`, `A and B are typing`, or `3 people are typing`.
-- Added original red-white SVG artwork so the site looks customized even before you add official assets.
-- Supabase schema now adds feed/comments/messages to Realtime publication where supported.
-- `package-lock.json` was removed and `.npmrc` points to the public npm registry to avoid private registry install errors.
-
-## Important security limitations
-
-No normal website can fully stop screenshots. This project can deter casual screenshots by hiding the page when the tab loses focus, disabling printing, adding watermarks, and blocking simple right-click/copy behavior, but it cannot block OS-level screenshots, browser dev tools, another phone camera, modified browsers, or screen recording software.
-
-Anonymous Supabase accounts persist in the browser. If a user signs out, clears browser data, changes device, or loses the browser profile, they can lose that anonymous identity because no email recovery exists.
-
-The group text chat is encrypted only for people who know the shared room passphrase. Share that passphrase manually with trusted members. If someone leaks the passphrase, they can decrypt messages they can access.
-
-The voice chat uses WebRTC media encryption in transit. The free version uses public STUN only, which works for many users but not every strict network. If voice fails for some members, add a TURN provider later.
+- Removed public-facing explanation text about message protection/security details from the app UI and docs.
+- Group chat is now a lower-right popup with two sub-tabs:
+  - **Messages**
+  - **Voice chat**
+- Live messages update automatically without refresh.
+- Typing indicators show one or multiple users typing.
+- Every user can customize:
+  - display name
+  - chat colour
+  - bio
+- Chat bubbles show each user with a distinct colour/avatar.
+- Admin-only **Site settings** page added.
+- Admin can upload/change:
+  - site logo
+  - hero/background image
+  - invite page wording
+  - feed hero wording
+  - topbar tagline
+  - community card wording
+  - footer text
+- Supabase schema adds:
+  - `profiles.chat_color`
+  - `site_settings`
+  - `site-assets` storage bucket
 
 ## Free deployment stack
 
 Recommended:
 
-- Frontend: Vercel Hobby plan
-- Backend: Supabase Free plan
-
-Supabase Free is enough for small communities, but large image usage, many realtime chat users, and voice signaling can hit free limits. Keep images optimized.
-
-## Add allowed Olympiacos logo/images
-
-Official assets are not included. If you have permission/right to use them, add these files:
-
-```txt
-public/brand/olympiacos-logo.png
-public/brand/olympiacos-hero.jpg
-```
-
-Recommended:
-
-- `olympiacos-logo.png`: square PNG, 512x512 or larger, transparent background if possible.
-- `olympiacos-hero.jpg`: wide stadium/team/fan image, ideally 1920x1080.
-
-The project also includes original non-official fallback artwork:
-
-```txt
-public/brand/community-crest.svg
-public/brand/red-white-hero.svg
-```
-
-After adding official/allowed assets, commit and push again:
-
-```bash
-git add public/brand
-git commit -m "Add brand assets"
-git push
-```
-
-If the official files are missing, the app falls back to the included original red-white fan artwork (`community-crest.svg` and `red-white-hero.svg`).
+- Frontend: Vercel Hobby
+- Backend: Supabase Free
 
 ## Setup
 
-### 1. Create Supabase project
+### 1. Supabase
 
-Create a new project in Supabase.
+Create a Supabase project.
 
-In **Authentication > Providers**, enable **Anonymous Sign-Ins**.
+Enable:
 
-### 2. Install the database schema
+```txt
+Authentication → Providers → Anonymous Sign-Ins
+```
 
-Open **Supabase > SQL Editor**, paste the full contents of:
+Then open:
+
+```txt
+Supabase → SQL Editor → New Query
+```
+
+Paste the full contents of:
 
 ```txt
 supabase/schema.sql
@@ -96,31 +64,29 @@ supabase/schema.sql
 
 Run it.
 
-### 3. Create your admin account invite
+### 2. Create your admin/founder invite
 
-Run this in Supabase SQL Editor:
+Run:
 
 ```sql
 select public.make_admin_invite();
 ```
 
-Copy the returned token. It starts with `founder-...`.
-
-Open your site with that invite:
+Copy the returned token. It starts with:
 
 ```txt
-https://your-site.vercel.app/?invite=PASTE_THE_FOUNDER_TOKEN_HERE
+founder-
 ```
 
-Choose your anonymous admin handle. The account created from this invite becomes the owner/admin account.
+Open your site like this:
 
-If you already used the first version, the old command still works too:
-
-```sql
-select public.make_founder_invite();
+```txt
+https://your-site.vercel.app/?invite=PASTE_TOKEN_HERE
 ```
 
-### 4. Configure the web app
+The account created with that invite becomes admin.
+
+### 3. Configure the frontend
 
 Copy:
 
@@ -135,100 +101,122 @@ VITE_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR-SUPABASE-ANON-KEY
 ```
 
-You can find these in **Supabase Project Settings > API**.
+You can find these in:
 
-### 5. Run locally
+```txt
+Supabase → Project Settings → API
+```
+
+### 4. Run locally
 
 ```bash
-npm install
+npm config set registry https://registry.npmjs.org/
+npm install --registry=https://registry.npmjs.org/
 npm run dev
 ```
 
-Open the local URL and register using the admin invite token.
+### 5. Deploy on Vercel
 
-### 6. Deploy on Vercel
+Push this folder to GitHub, then import it in Vercel.
 
-Option A: GitHub + Vercel
-
-1. Push this folder to your GitHub repository.
-2. Import the repository in Vercel.
-3. Add these environment variables in Vercel Project Settings:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-4. Build command: `npm run build`
-5. Output directory: `dist`
-6. Deploy.
-
-Option B: Vercel CLI
-
-```bash
-npm install -g vercel
-vercel
-vercel --prod
-```
-
-Remember to add the environment variables in the Vercel dashboard.
-
-## How member invites work
-
-1. A registered member opens the invite panel.
-2. They click **Create one-use invite**.
-3. The app copies a link like:
+Use:
 
 ```txt
-https://your-site.vercel.app/?invite=...
+Framework Preset: Vite
+Install Command: npm install
+Build Command: npm run build
+Output Directory: dist
 ```
 
-4. The recipient opens it and picks an anonymous handle.
-5. The invite becomes used and cannot be reused.
+Add these environment variables in Vercel:
 
-Normal app-created invites are always `member` invites. Admin/founder invites are created only through Supabase SQL so members cannot accidentally create admin accounts.
+```txt
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+```
 
-## How the admin panel works
+Deploy.
 
-When your profile role is `admin`, the left column shows **Admin control**.
+## Updating your existing GitHub repo
 
-You can:
+From your local project folder:
 
-- See latest members.
-- Promote a member to moderator.
-- Promote another trusted user to admin.
-- Demote moderators/admins.
-- Delete posts/comments/encrypted message records as staff.
+```powershell
+cd "R:\Lyseis\New\olympiacos-anonymous-blog"
 
-Safety rule: the only admin account cannot demote itself.
+Remove-Item -Force package-lock.json -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
 
-## How the floating encrypted group messenger works
+npm config set registry https://registry.npmjs.org/
+npm install --registry=https://registry.npmjs.org/
+npm run build
 
-The messenger is fixed to the lower-right corner. Users can close it and reopen it without leaving the feed. New messages load live through Supabase Realtime/Broadcast, and typing indicators are broadcast to other connected members.
+git status
+git add .
+git commit -m "Add admin branding settings and chat voice tabs"
+git push origin main
+```
 
-1. Members agree on a shared room passphrase outside the site.
-2. They enter it into the popup messenger.
-3. The browser derives an AES-GCM key from the passphrase using PBKDF2.
-4. Only ciphertext, IV, salt, sender ID, and timestamp are stored in Supabase.
-5. Supabase admins can see metadata and ciphertext, but not readable chat text unless they know the passphrase.
+Vercel should redeploy automatically after the push.
 
-## How the voice room works
+## Admin site settings
 
-1. Members click **Join voice**.
-2. The browser asks for microphone permission.
-3. Supabase Realtime is used only for signaling.
-4. The actual audio is peer-to-peer WebRTC.
-5. Users can mute/unmute and leave.
+After you log in as admin, click:
 
-Voice requires HTTPS in production. Vercel gives HTTPS automatically. Localhost also works for development.
+```txt
+Site settings
+```
 
-This version is best for a small private group. For a large always-on voice server, later upgrade to LiveKit, Daily, Agora, or another SFU/TURN-based service.
+From there you can upload a logo/background and edit the wording shown around the site.
 
-## Recommended production settings
+Admin uploads are stored in the Supabase bucket:
 
-- Keep Supabase RLS enabled.
-- Do not expose the service role key in the frontend.
-- Keep the Supabase anon key only in `VITE_SUPABASE_ANON_KEY`.
-- Do not add official club logos unless you have permission.
-- Moderate posts manually if the community grows.
-- Use short image sizes to avoid Supabase free storage/egress limits.
-- Test voice chat from two different devices after deploying to Vercel.
+```txt
+site-assets
+```
+
+The normal post images bucket remains:
+
+```txt
+post-images
+```
+
+## Member customization
+
+Each user can open **Your anonymous profile** and change:
+
+- Display name
+- Chat colour
+- Bio
+
+The group chat uses each user's colour for their bubble/avatar so users are visually distinct.
+
+## Voice room
+
+Open the lower-right **Group chat** popup, then choose:
+
+```txt
+Voice chat
+```
+
+Users can join, mute/unmute, and leave. It works best on HTTPS, which Vercel provides automatically.
+
+## Brand assets
+
+You can either upload assets from the admin Site settings page or add static files here:
+
+```txt
+public/brand/olympiacos-logo.png
+public/brand/olympiacos-hero.jpg
+```
+
+Fallback artwork included:
+
+```txt
+public/brand/community-crest.svg
+public/brand/red-white-hero.svg
+```
 
 ## Folder structure
 
@@ -241,18 +229,10 @@ This version is best for a small private group. For a large always-on voice serv
 ├── public/
 │   ├── favicon.svg
 │   └── brand/
-│       ├── README.md
-│       ├── community-crest.svg    # included non-official fallback
-│       ├── red-white-hero.svg     # included non-official fallback
-│       ├── olympiacos-logo.png    # add yourself if allowed
-│       └── olympiacos-hero.jpg    # add yourself if allowed
 ├── src/
 │   ├── App.jsx
 │   ├── styles.css
 │   └── lib/
-│       ├── crypto.js
-│       ├── supabase.js
-│       └── youtube.js
 └── supabase/
     └── schema.sql
 ```

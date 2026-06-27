@@ -14,14 +14,27 @@ create table if not exists public.profiles (
   display_name text not null,
   avatar_url text,
   bio text not null default '',
+  chat_color text not null default '#e31b2f',
   role text not null default 'member' check (role in ('member', 'moderator', 'admin')),
   invite_id uuid,
   created_at timestamptz not null default now(),
   last_seen timestamptz not null default now(),
   constraint profiles_handle_format check (handle ~ '^[a-zA-Z0-9_]{3,24}$'),
   constraint profiles_display_name_len check (char_length(display_name) between 1 and 48),
-  constraint profiles_bio_len check (char_length(bio) <= 500)
+  constraint profiles_bio_len check (char_length(bio) <= 500),
+  constraint profiles_chat_color_format check (chat_color ~ '^#[0-9A-Fa-f]{6}$')
 );
+
+alter table public.profiles add column if not exists chat_color text not null default '#e31b2f';
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'profiles_chat_color_format') then
+    alter table public.profiles
+      add constraint profiles_chat_color_format check (chat_color ~ '^#[0-9A-Fa-f]{6}$');
+  end if;
+end $$;
+
 
 create table if not exists public.invites (
   id uuid primary key default extensions.gen_random_uuid(),
@@ -33,6 +46,32 @@ create table if not exists public.invites (
   used_at timestamptz,
   expires_at timestamptz not null default now() + interval '30 days'
 );
+
+create table if not exists public.site_settings (
+  key text primary key,
+  value text not null default '',
+  updated_by uuid references public.profiles(id) on delete set null,
+  updated_at timestamptz not null default now(),
+  constraint site_settings_key_len check (char_length(key) between 1 and 80),
+  constraint site_settings_value_len check (char_length(value) <= 1200)
+);
+
+insert into public.site_settings (key, value)
+values
+  ('site_title', 'Thrylos Agora'),
+  ('tagline', 'Anonymous. Invite-only. Red-white agora.'),
+  ('header_tagline', 'Independent red-white community'),
+  ('gate_heading', 'A modern private red-white blog for members only.'),
+  ('gate_intro', 'Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join the live group chat and voice room without giving an email.'),
+  ('feed_eyebrow', 'ΘΡΥΛΟΣ AGORA · PRIVATE BOARD'),
+  ('feed_heading', 'Red-white matchday pulse, news and member posts.'),
+  ('feed_intro', 'A modern members-only space for clean posts, images, YouTube clips, transfer talk, match reactions and private community chat.'),
+  ('community_title', 'Clean red-white community'),
+  ('community_text', 'Use the feed for member posts and the floating group chat for live community talk.'),
+  ('footer_text', 'Independent red-white fan project. Add only brand assets you are allowed to use in public/brand/ or from the admin settings page.'),
+  ('logo_url', ''),
+  ('hero_url', '')
+on conflict (key) do nothing;
 
 alter table public.invites add column if not exists invite_role text not null default 'member';
 
@@ -87,8 +126,6 @@ create table if not exists public.post_likes (
   primary key (post_id, user_id)
 );
 
--- Group chat messages are stored only as ciphertext.
--- Decryption happens in the browser with the room passphrase.
 create table if not exists public.encrypted_messages (
   id uuid primary key default extensions.gen_random_uuid(),
   sender_id uuid not null references public.profiles(id) on delete cascade,
@@ -336,6 +373,7 @@ grant execute on function public.admin_set_user_role(uuid, text) to authenticate
 
 alter table public.profiles enable row level security;
 alter table public.invites enable row level security;
+alter table public.site_settings enable row level security;
 alter table public.posts enable row level security;
 alter table public.comments enable row level security;
 alter table public.post_likes enable row level security;
@@ -354,7 +392,31 @@ with check (id = auth.uid());
 
 -- Prevent normal users from editing their own role through the browser.
 revoke update on public.profiles from authenticated;
-grant update (display_name, avatar_url, bio, last_seen) on public.profiles to authenticated;
+grant update (display_name, avatar_url, bio, chat_color, last_seen) on public.profiles to authenticated;
+
+drop policy if exists site_settings_public_select on public.site_settings;
+create policy site_settings_public_select on public.site_settings
+for select to anon, authenticated
+using (true);
+
+drop policy if exists site_settings_admin_insert on public.site_settings;
+create policy site_settings_admin_insert on public.site_settings
+for insert to authenticated
+with check (public.is_full_admin());
+
+drop policy if exists site_settings_admin_update on public.site_settings;
+create policy site_settings_admin_update on public.site_settings
+for update to authenticated
+using (public.is_full_admin())
+with check (public.is_full_admin());
+
+drop policy if exists site_settings_admin_delete on public.site_settings;
+create policy site_settings_admin_delete on public.site_settings
+for delete to authenticated
+using (public.is_full_admin());
+
+grant select on public.site_settings to anon, authenticated;
+grant insert, update, delete on public.site_settings to authenticated;
 
 drop policy if exists invites_select_own on public.invites;
 create policy invites_select_own on public.invites
@@ -429,7 +491,7 @@ using (sender_id = auth.uid() or public.is_staff());
 
 
 
--- Realtime support for live feed, comments and the floating encrypted messenger.
+-- Realtime support for live feed, comments and the floating group messenger.
 -- Supabase Broadcast works without this, but Postgres changes need the tables in supabase_realtime.
 do $$
 begin
@@ -483,3 +545,38 @@ drop policy if exists post_images_owner_delete on storage.objects;
 create policy post_images_owner_delete on storage.objects
 for delete to authenticated
 using (bucket_id = 'post-images' and owner = auth.uid());
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'site-assets',
+  'site-assets',
+  true,
+  5242880,
+  array['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml']
+)
+on conflict (id) do update
+set public = true,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists site_assets_public_read on storage.objects;
+create policy site_assets_public_read on storage.objects
+for select
+using (bucket_id = 'site-assets');
+
+drop policy if exists site_assets_admin_upload on storage.objects;
+create policy site_assets_admin_upload on storage.objects
+for insert to authenticated
+with check (bucket_id = 'site-assets' and public.is_full_admin());
+
+drop policy if exists site_assets_admin_update on storage.objects;
+create policy site_assets_admin_update on storage.objects
+for update to authenticated
+using (bucket_id = 'site-assets' and public.is_full_admin())
+with check (bucket_id = 'site-assets' and public.is_full_admin());
+
+drop policy if exists site_assets_admin_delete on storage.objects;
+create policy site_assets_admin_delete on storage.objects
+for delete to authenticated
+using (bucket_id = 'site-assets' and public.is_full_admin());
+

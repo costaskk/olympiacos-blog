@@ -607,27 +607,6 @@ code {
   gap: 0.55rem;
 }
 
-.chat-privacy .chat-window {
-  position: relative;
-}
-
-.chat-privacy .chat-window::before {
-  content: 'PRIVATE ROOM';
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  display: block;
-  margin: -0.8rem -0.8rem 0.6rem;
-  padding: 0.45rem;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 0.72rem;
-  font-weight: 950;
-  letter-spacing: 0.14em;
-  background: rgba(209, 0, 25, 0.42);
-  backdrop-filter: blur(10px);
-}
-
 .invite-result {
   display: grid;
   gap: 0.4rem;
@@ -1444,5 +1423,205 @@ body::before {
 
   .feed-hero h1 {
     font-size: 2.15rem;
+  }
+}
+
+/* v4 profile colours, group-room voice tab, admin branding page */
+.dashboard.two-column {
+  grid-template-columns: 300px minmax(0, 1fr) 300px;
+}
+
+.chat-popup {
+  width: min(470px, calc(100vw - 1.4rem));
+}
+
+.chat-subtabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 0.35rem;
+}
+
+.chat-subtabs button {
+  border: 0;
+  border-radius: 14px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 900;
+  padding: 0.7rem 0.8rem;
+  transition: 160ms ease;
+}
+
+.chat-subtabs button.active {
+  color: white;
+  background: linear-gradient(135deg, rgba(209, 0, 25, 0.5), rgba(255, 255, 255, 0.1));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.chat-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.chat-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 10px;
+  color: #08090d;
+  font-size: 0.78rem;
+  font-weight: 1000;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+}
+
+.chat-line {
+  border-left: 4px solid var(--member-color, var(--red));
+}
+
+.chat-line.mine {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--member-color, var(--red)) 36%, transparent), rgba(255, 255, 255, 0.08));
+}
+
+.color-picker-row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.color-input {
+  height: 46px;
+  min-width: 64px;
+  padding: 0.25rem;
+  cursor: pointer;
+}
+
+.voice-card.inside-chat {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.voice-card.inside-chat .voice-members {
+  max-height: 270px;
+  overflow: auto;
+}
+
+.admin-site-page {
+  width: min(1300px, calc(100% - 2rem));
+  margin: 1.1rem auto;
+  display: grid;
+  gap: 1.1rem;
+}
+
+.admin-site-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: clamp(1.2rem, 4vw, 2rem);
+  overflow: hidden;
+  position: relative;
+}
+
+.admin-site-hero::after {
+  content: 'ADMIN';
+  position: absolute;
+  right: -0.25rem;
+  bottom: -0.8rem;
+  color: rgba(255, 255, 255, 0.045);
+  font-size: clamp(4rem, 12vw, 8rem);
+  font-weight: 1000;
+  letter-spacing: -0.08em;
+}
+
+.admin-site-hero h1 {
+  max-width: 820px;
+  margin: 0.55rem 0 0.4rem;
+  font-size: clamp(2rem, 5vw, 4rem);
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+}
+
+.admin-site-hero p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.admin-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 390px) minmax(0, 1fr);
+  gap: 1.1rem;
+  align-items: start;
+}
+
+.admin-settings-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+}
+
+.admin-settings-card h2 {
+  margin: 0;
+}
+
+.brand-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.055);
+  padding: 0.85rem;
+}
+
+.brand-preview-row strong,
+.brand-preview-row small {
+  display: block;
+}
+
+.brand-preview-row small {
+  color: var(--muted);
+  margin-top: 0.2rem;
+}
+
+.settings-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+@media (max-width: 1180px) {
+  .dashboard.two-column {
+    grid-template-columns: 270px minmax(0, 1fr);
+  }
+
+  .dashboard.two-column .right-rail {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 820px) {
+  .dashboard.two-column,
+  .admin-settings-grid,
+  .settings-two-col,
+  .color-picker-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-site-hero {
+    flex-direction: column;
   }
 }

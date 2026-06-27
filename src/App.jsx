@@ -6,11 +6,30 @@ import { getYoutubeId, isSafeUrl } from './lib/youtube.js';
 import './styles.css';
 
 const BUCKET = 'post-images';
+const SITE_ASSETS_BUCKET = 'site-assets';
 const APP_NAME = 'Thrylos Agora';
 const BRAND_LOGO_CANDIDATES = ['/brand/olympiacos-logo.png', '/brand/community-crest.svg'];
 const BRAND_HERO = '/brand/red-white-hero.svg';
 const OFFICIAL_HERO = '/brand/olympiacos-hero.jpg';
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+const DEFAULT_SITE_SETTINGS = {
+  site_title: 'Thrylos Agora',
+  tagline: 'Anonymous. Invite-only. Red-white agora.',
+  header_tagline: 'Independent red-white community',
+  gate_heading: 'A modern private red-white blog for members only.',
+  gate_intro: 'Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join the live group chat and voice room without giving an email.',
+  feed_eyebrow: 'ΘΡΥΛΟΣ AGORA · PRIVATE BOARD',
+  feed_heading: 'Red-white matchday pulse, news and member posts.',
+  feed_intro: 'A modern members-only space for clean posts, images, YouTube clips, transfer talk, match reactions and private community chat.',
+  community_title: 'Clean red-white community',
+  community_text: 'Use the feed for member posts and the floating group chat for live community talk.',
+  footer_text: 'Independent red-white fan project. Add only brand assets you are allowed to use in public/brand/ or from the admin settings page.',
+  logo_url: '',
+  hero_url: '',
+};
+
+const CHAT_COLORS = ['#e31b2f', '#ffffff', '#ffb703', '#2dd4bf', '#60a5fa', '#c084fc', '#fb7185', '#34d399'];
 
 function formatTime(value) {
   if (!value) return '';
@@ -30,6 +49,30 @@ function displayUser(profile) {
   return profile.display_name || profile.handle || 'anonymous';
 }
 
+function userColor(profile) {
+  const color = profile?.chat_color || '';
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#e31b2f';
+}
+
+function publicAssetUrl(bucket, path) {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+
+async function loadSiteSettings() {
+  if (!isConfigured()) return DEFAULT_SITE_SETTINGS;
+  const { data, error } = await supabase.from('site_settings').select('key,value');
+  if (error || !data) return DEFAULT_SITE_SETTINGS;
+  const settings = { ...DEFAULT_SITE_SETTINGS };
+  data.forEach((row) => {
+    if (row?.key && Object.prototype.hasOwnProperty.call(settings, row.key)) {
+      settings[row.key] = row.value || '';
+    }
+  });
+  return settings;
+}
+
 function roleBadge(role) {
   if (role === 'admin') return 'Founder';
   if (role === 'moderator') return 'Mod';
@@ -40,31 +83,32 @@ function isStaff(role) {
   return role === 'admin' || role === 'moderator';
 }
 
-function BrandMark({ large = false }) {
+function BrandMark({ large = false, settings = DEFAULT_SITE_SETTINGS }) {
   const [assetIndex, setAssetIndex] = useState(0);
-  const src = BRAND_LOGO_CANDIDATES[assetIndex];
+  const candidates = [settings?.logo_url, ...BRAND_LOGO_CANDIDATES].filter(Boolean);
+  const src = candidates[assetIndex] || BRAND_LOGO_CANDIDATES[0];
   return (
     <span className={`crest crest-image ${large ? 'large' : ''}`}>
       <img
         src={src}
-        alt="Red-white community crest"
+        alt={`${settings?.site_title || APP_NAME} logo`}
         onError={() => {
-          if (assetIndex < BRAND_LOGO_CANDIDATES.length - 1) setAssetIndex(assetIndex + 1);
+          if (assetIndex < candidates.length - 1) setAssetIndex(assetIndex + 1);
         }}
       />
     </span>
   );
 }
 
-function SetupNotice() {
+function SetupNotice({ settings = DEFAULT_SITE_SETTINGS }) {
   return (
     <main className="setup-shell">
       <div className="setup-card glass-card">
         <div className="brand-lockup big">
-          <BrandMark large />
+          <BrandMark large settings={settings} />
           <div>
-            <strong>{APP_NAME}</strong>
-            <small>Private red-white blog + encrypted agora</small>
+            <strong>{settings.site_title || APP_NAME}</strong>
+            <small>{settings.tagline}</small>
           </div>
         </div>
         <h1>Connect Supabase first</h1>
@@ -77,7 +121,7 @@ function SetupNotice() {
   );
 }
 
-function InviteGate({ onProfileReady }) {
+function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS }) {
   const [invite, setInvite] = useState(new URLSearchParams(window.location.search).get('invite') || '');
   const [handle, setHandle] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -111,22 +155,20 @@ function InviteGate({ onProfileReady }) {
 
   return (
     <main className="gate-shell">
-      <section className="gate-hero" style={{ '--hero-image': `url(${BRAND_HERO})`, '--official-hero-image': `url(${OFFICIAL_HERO})` }}>
+      <section className="gate-hero" style={{ '--hero-image': `url(${settings.hero_url || BRAND_HERO})`, '--official-hero-image': `url(${settings.hero_url || OFFICIAL_HERO})` }}>
         <div className="brand-lockup big">
-          <BrandMark large />
+          <BrandMark large settings={settings} />
           <div>
-            <strong>{APP_NAME}</strong>
-            <small>Anonymous. Invite-only. Red-white agora.</small>
+            <strong>{settings.site_title || APP_NAME}</strong>
+            <small>{settings.tagline}</small>
           </div>
         </div>
-        <h1>A modern private red-white blog for members only.</h1>
-        <p>
-          Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join voice chat and the encrypted group messenger without giving an email.
-        </p>
+        <h1>{settings.gate_heading}</h1>
+        <p>{settings.gate_intro}</p>
         <div className="hero-grid">
           <span>Gate 7 invite links</span>
           <span>Admin moderation</span>
-          <span>Live encrypted messenger</span>
+          <span>Live group chat</span>
           <span>Voice room</span>
         </div>
       </section>
@@ -182,7 +224,7 @@ function InviteGate({ onProfileReady }) {
   );
 }
 
-function Shell({ profile, setProfile, children }) {
+function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, setView, children }) {
   const [safeShield, setSafeShield] = useState(false);
 
   useEffect(() => {
@@ -211,7 +253,7 @@ function Shell({ profile, setProfile, children }) {
       {safeShield && (
         <div className="privacy-shield">
           <div>
-            <BrandMark large />
+            <BrandMark large settings={settings} />
             <strong>Private screen shield</strong>
             <small>Content is hidden while the tab is not active.</small>
           </div>
@@ -220,16 +262,21 @@ function Shell({ profile, setProfile, children }) {
       <div className="watermark">{profile?.handle || 'anonymous'} · private members forum</div>
       <header className="topbar">
         <div className="brand-lockup">
-          <BrandMark />
+          <BrandMark settings={settings} />
           <div>
-            <strong>{APP_NAME}</strong>
-            <small>Independent fan community</small>
+            <strong>{settings.site_title || APP_NAME}</strong>
+            <small>{settings.header_tagline}</small>
           </div>
         </div>
         <div className="user-chip">
           <span className="status-dot" />
           <span>{displayUser(profile)}</span>
           <em>{roleBadge(profile?.role)}</em>
+          {profile?.role === 'admin' && (
+            <button type="button" className="ghost-btn compact" onClick={() => setView(view === 'admin-site' ? 'feed' : 'admin-site')}>
+              {view === 'admin-site' ? 'Blog' : 'Site settings'}
+            </button>
+          )}
           <button type="button" className="ghost-btn compact" onClick={signOut}>Sign out</button>
         </div>
       </header>
@@ -345,7 +392,7 @@ function PostCard({ post, profile, onChanged }) {
   const loadComments = useCallback(async () => {
     const { data } = await supabase
       .from('comments')
-      .select('*, profiles(handle, display_name, role)')
+      .select('*, profiles(handle, display_name, role, chat_color)')
       .eq('post_id', post.id)
       .order('created_at', { ascending: true });
     setComments(data || []);
@@ -446,16 +493,13 @@ function PostCard({ post, profile, onChanged }) {
 }
 
 
-function FeedHero({ profile }) {
+function FeedHero({ profile, settings = DEFAULT_SITE_SETTINGS }) {
   return (
-    <section className="feed-hero glass-card" style={{ '--hero-image': `url(${BRAND_HERO})`, '--official-hero-image': `url(${OFFICIAL_HERO})` }}>
+    <section className="feed-hero glass-card" style={{ '--hero-image': `url(${settings.hero_url || BRAND_HERO})`, '--official-hero-image': `url(${settings.hero_url || OFFICIAL_HERO})` }}>
       <div className="feed-hero-copy">
-        <span className="eyebrow">ΘΡΥΛΟΣ AGORA · PRIVATE BOARD</span>
-        <h1>Red-white matchday pulse, news and member posts.</h1>
-        <p>
-          A modern anonymous members-only space for clean posts, images, YouTube clips, transfer talk,
-          match reactions and private community chat.
-        </p>
+        <span className="eyebrow">{settings.feed_eyebrow}</span>
+        <h1>{settings.feed_heading}</h1>
+        <p>{settings.feed_intro}</p>
       </div>
       <div className="feed-hero-card">
         <strong>@{profile.handle}</strong>
@@ -471,9 +515,9 @@ function TypingIndicator({ typers }) {
   if (people.length === 0) return null;
 
   let label = '';
-  if (people.length === 1) label = `${people[0]} is typing…`;
-  else if (people.length === 2) label = `${people[0]} and ${people[1]} are typing…`;
-  else if (people.length === 3) label = `${people[0]}, ${people[1]} and ${people[2]} are typing…`;
+  if (people.length === 1) label = `${people[0].name || people[0]} is typing…`;
+  else if (people.length === 2) label = `${people[0].name || people[0]} and ${people[1].name || people[1]} are typing…`;
+  else if (people.length === 3) label = `${people[0].name || people[0]}, ${people[1].name || people[1]} and ${people[2].name || people[2]} are typing…`;
   else label = `${people.length} people are typing…`;
 
   return (
@@ -484,7 +528,7 @@ function TypingIndicator({ typers }) {
   );
 }
 
-function Feed({ profile }) {
+function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
@@ -492,7 +536,7 @@ function Feed({ profile }) {
   const loadPosts = useCallback(async () => {
     let query = supabase
       .from('posts')
-      .select('*, profiles(handle, display_name, role)')
+      .select('*, profiles(handle, display_name, role, chat_color)')
       .order('created_at', { ascending: false })
       .limit(50);
 
@@ -513,7 +557,7 @@ function Feed({ profile }) {
 
   return (
     <section className="feed-column">
-      <FeedHero profile={profile} />
+      <FeedHero profile={profile} settings={settings} />
       <Composer profile={profile} onCreated={loadPosts} />
       <div className="feed-toolbar glass-card">
         <strong>Latest posts</strong>
@@ -620,7 +664,7 @@ function AdminPanel({ profile }) {
       <div className="admin-stats">
         <span><strong>{stats.members}</strong><small>members shown</small></span>
         <span><strong>{stats.posts}</strong><small>posts</small></span>
-        <span><strong>{stats.messages}</strong><small>chat msgs</small></span>
+        <span><strong>{stats.messages}</strong><small>chat messages</small></span>
       </div>
       <div className="member-list">
         {members.map((member) => (
@@ -641,13 +685,139 @@ function AdminPanel({ profile }) {
   );
 }
 
+
+function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
+  const [form, setForm] = useState({ ...DEFAULT_SITE_SETTINGS, ...settings });
+  const [logoFile, setLogoFile] = useState(null);
+  const [heroFile, setHeroFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setForm({ ...DEFAULT_SITE_SETTINGS, ...settings });
+  }, [settings]);
+
+  function updateField(key, value) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function uploadBrandAsset(file, type) {
+    if (!file) return '';
+    if (!file.type.startsWith('image/')) throw new Error('Only image files are allowed.');
+    if (file.size > 5 * 1024 * 1024) throw new Error('Brand images must be under 5 MB.');
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+    const safeExt = ext.replace(/[^a-z0-9]/g, '') || 'png';
+    const path = `branding/${type}-${Date.now()}.${safeExt}`;
+    const { error: uploadError } = await supabase.storage.from(SITE_ASSETS_BUCKET).upload(path, file, {
+      cacheControl: '3600',
+      upsert: true,
+    });
+    if (uploadError) throw uploadError;
+    return publicAssetUrl(SITE_ASSETS_BUCKET, path);
+  }
+
+  async function saveSettings(e) {
+    e.preventDefault();
+    setBusy(true);
+    setSaved(false);
+    setError('');
+    try {
+      const next = { ...form };
+      if (logoFile) next.logo_url = await uploadBrandAsset(logoFile, 'logo');
+      if (heroFile) next.hero_url = await uploadBrandAsset(heroFile, 'hero');
+
+      const rows = Object.entries(DEFAULT_SITE_SETTINGS).map(([key]) => ({
+        key,
+        value: String(next[key] || ''),
+      }));
+
+      const { error: upsertError } = await supabase.from('site_settings').upsert(rows, { onConflict: 'key' });
+      if (upsertError) throw upsertError;
+      setForm(next);
+      setLogoFile(null);
+      setHeroFile(null);
+      setSaved(true);
+      await onSettingsChanged?.();
+      setTimeout(() => setSaved(false), 1600);
+    } catch (err) {
+      setError(err.message || 'Could not save site settings');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="admin-site-page">
+      <section className="admin-site-hero glass-card">
+        <div>
+          <span className="eyebrow">ADMIN SITE SETTINGS</span>
+          <h1>Customize the logo, hero image and wording.</h1>
+          <p>These changes apply to the public invite screen, top bar, feed hero, side cards and footer.</p>
+        </div>
+        <button className="ghost-btn" type="button" onClick={goBack}>Back to blog</button>
+      </section>
+
+      <form className="admin-settings-grid" onSubmit={saveSettings}>
+        <section className="glass-card admin-settings-card">
+          <h2>Brand images</h2>
+          <div className="brand-preview-row">
+            <BrandMark large settings={form} />
+            <div>
+              <strong>{form.site_title || APP_NAME}</strong>
+              <small>{form.tagline}</small>
+            </div>
+          </div>
+          <label>
+            Logo URL
+            <input value={form.logo_url} onChange={(e) => updateField('logo_url', e.target.value)} placeholder="https://... or /brand/olympiacos-logo.png" />
+          </label>
+          <label>
+            Upload new logo
+            <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} />
+          </label>
+          <label>
+            Hero/background URL
+            <input value={form.hero_url} onChange={(e) => updateField('hero_url', e.target.value)} placeholder="https://... or /brand/olympiacos-hero.jpg" />
+          </label>
+          <label>
+            Upload new hero image
+            <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={(e) => setHeroFile(e.target.files?.[0] || null)} />
+          </label>
+        </section>
+
+        <section className="glass-card admin-settings-card wide">
+          <h2>Site wording</h2>
+          <div className="settings-two-col">
+            <label>Site title<input value={form.site_title} onChange={(e) => updateField('site_title', e.target.value)} maxLength={80} /></label>
+            <label>Small tagline<input value={form.tagline} onChange={(e) => updateField('tagline', e.target.value)} maxLength={140} /></label>
+            <label>Header tagline<input value={form.header_tagline} onChange={(e) => updateField('header_tagline', e.target.value)} maxLength={140} /></label>
+            <label>Feed eyebrow<input value={form.feed_eyebrow} onChange={(e) => updateField('feed_eyebrow', e.target.value)} maxLength={90} /></label>
+          </div>
+          <label>Invite page headline<input value={form.gate_heading} onChange={(e) => updateField('gate_heading', e.target.value)} maxLength={180} /></label>
+          <label>Invite page intro<textarea value={form.gate_intro} onChange={(e) => updateField('gate_intro', e.target.value)} rows={3} maxLength={500} /></label>
+          <label>Feed headline<input value={form.feed_heading} onChange={(e) => updateField('feed_heading', e.target.value)} maxLength={180} /></label>
+          <label>Feed intro<textarea value={form.feed_intro} onChange={(e) => updateField('feed_intro', e.target.value)} rows={3} maxLength={500} /></label>
+          <div className="settings-two-col">
+            <label>Community card title<input value={form.community_title} onChange={(e) => updateField('community_title', e.target.value)} maxLength={120} /></label>
+            <label>Footer text<input value={form.footer_text} onChange={(e) => updateField('footer_text', e.target.value)} maxLength={240} /></label>
+          </div>
+          <label>Community card text<textarea value={form.community_text} onChange={(e) => updateField('community_text', e.target.value)} rows={3} maxLength={400} /></label>
+          {error && <div className="error-box">{error}</div>}
+          <button className="primary-btn" type="submit" disabled={busy}>{busy ? 'Saving…' : saved ? 'Saved' : 'Save site settings'}</button>
+        </section>
+      </form>
+    </main>
+  );
+}
+
 function ChatPanel({ profile }) {
   const [isOpen, setIsOpen] = useState(() => localStorage.getItem('chat-popup-open') !== '0');
+  const [activeTab, setActiveTab] = useState('messages');
   const [roomSecret, setRoomSecret] = useState(sessionStorage.getItem('room-secret') || '');
   const [messages, setMessages] = useState([]);
   const [plainMessages, setPlainMessages] = useState([]);
   const [draft, setDraft] = useState('');
-  const [privacyMode, setPrivacyMode] = useState(true);
   const [busy, setBusy] = useState(false);
   const [activeTypers, setActiveTypers] = useState({});
   const [unreadCount, setUnreadCount] = useState(0);
@@ -668,7 +838,7 @@ function ChatPanel({ profile }) {
   const loadMessages = useCallback(async () => {
     const { data } = await supabase
       .from('encrypted_messages')
-      .select('*, profiles(handle, display_name, role)')
+      .select('*, profiles(handle, display_name, role, chat_color)')
       .order('created_at', { ascending: false })
       .limit(100);
     setMessages((data || []).reverse());
@@ -682,6 +852,7 @@ function ChatPanel({ profile }) {
       payload: {
         user_id: profile.id,
         name: displayUser(profile),
+        color: userColor(profile),
         is_typing: isTyping,
         at: Date.now(),
       },
@@ -703,7 +874,7 @@ function ChatPanel({ profile }) {
     loadMessages();
 
     const channel = supabase
-      .channel('encrypted-group-chat-room', { config: { broadcast: { self: false } } })
+      .channel('private-group-chat-room', { config: { broadcast: { self: false } } })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'encrypted_messages' }, () => {
         loadMessages();
       })
@@ -720,7 +891,7 @@ function ChatPanel({ profile }) {
           return;
         }
 
-        setActiveTypers((current) => ({ ...current, [payload.user_id]: payload.name || 'Member' }));
+        setActiveTypers((current) => ({ ...current, [payload.user_id]: { name: payload.name || 'Member', color: payload.color || '#e31b2f' } }));
         const oldTimer = typingTimersRef.current.get(payload.user_id);
         if (oldTimer) window.clearTimeout(oldTimer);
         const newTimer = window.setTimeout(() => clearTyper(payload.user_id), 3500);
@@ -752,7 +923,7 @@ function ChatPanel({ profile }) {
           const plain = await decryptMessage(message, roomSecret);
           output.push({ ...message, plain, failed: false });
         } catch {
-          output.push({ ...message, plain: 'Cannot decrypt with this room key.', failed: true });
+          output.push({ ...message, plain: 'Cannot read with this room key.', failed: true });
         }
       }
       if (!cancelled) setPlainMessages(output);
@@ -786,14 +957,14 @@ function ChatPanel({ profile }) {
       }).catch(() => null);
       loadMessages();
     } catch (err) {
-      alert(err.message || 'Could not send encrypted message');
+      alert(err.message || 'Could not send message');
     } finally {
       setBusy(false);
     }
   }
 
   async function deleteMessage(messageId) {
-    if (!window.confirm('Delete this encrypted message record?')) return;
+    if (!window.confirm('Delete this message?')) return;
     const { error } = await supabase.from('encrypted_messages').delete().eq('id', messageId);
     if (error) alert(error.message);
     loadMessages();
@@ -822,80 +993,88 @@ function ChatPanel({ profile }) {
   return (
     <div className={`chat-popup ${isOpen ? 'open' : 'closed'}`}>
       {!isOpen && (
-        <button className="chat-launcher" type="button" onClick={() => setIsOpen(true)} aria-label="Open encrypted messenger">
+        <button className="chat-launcher" type="button" onClick={() => setIsOpen(true)} aria-label="Open group chat">
           <span className="launcher-icon">💬</span>
           <span>
-            <strong>Messenger</strong>
-            <small>{unreadCount > 0 ? `${unreadCount} new` : 'Encrypted group chat'}</small>
+            <strong>Group chat</strong>
+            <small>{unreadCount > 0 ? `${unreadCount} new` : 'Messages and voice room'}</small>
           </span>
         </button>
       )}
 
       {isOpen && (
-        <aside className={`chat-card glass-card popup-card ${privacyMode ? 'chat-privacy' : ''}`}>
+        <aside className="chat-card glass-card popup-card">
           <div className="popup-chat-titlebar">
             <div>
-              <span className="eyebrow">LIVE MESSENGER</span>
-              <h2>Encrypted group chat</h2>
+              <span className="eyebrow">LIVE GROUP ROOM</span>
+              <h2>Group chat</h2>
             </div>
             <div className="popup-chat-actions">
-              <label className="toggle-line compact-toggle" title="Show privacy strip inside chat">
-                <input type="checkbox" checked={privacyMode} onChange={(event) => setPrivacyMode(event.target.checked)} />
-                Shield
-              </label>
               <button className="ghost-btn compact" type="button" onClick={() => setIsOpen(false)}>Close</button>
             </div>
           </div>
 
-          <div className="room-key-box popup-key-box">
-            <label>
-              Group room passphrase
-              <input
-                type="password"
-                value={roomSecret}
-                onChange={(event) => setRoomSecret(event.target.value)}
-                placeholder="Shared room key"
-              />
-            </label>
-            <button type="button" className="ghost-btn" onClick={generateSecret}>Generate</button>
+          <div className="chat-subtabs" role="tablist" aria-label="Group room options">
+            <button type="button" className={activeTab === 'messages' ? 'active' : ''} onClick={() => setActiveTab('messages')}>Messages</button>
+            <button type="button" className={activeTab === 'voice' ? 'active' : ''} onClick={() => setActiveTab('voice')}>Voice chat</button>
           </div>
 
-          {!canDecrypt && <div className="warning-box">Enter the shared room key to decrypt and send messages.</div>}
+          {activeTab === 'messages' ? (
+            <>
+              <div className="room-key-box popup-key-box">
+                <label>
+                  Group room passphrase
+                  <input
+                    type="password"
+                    value={roomSecret}
+                    onChange={(event) => setRoomSecret(event.target.value)}
+                    placeholder="Shared room key"
+                  />
+                </label>
+                <button type="button" className="ghost-btn" onClick={generateSecret}>Generate</button>
+              </div>
 
-          <div className="chat-window popup-chat-window" aria-live="polite">
-            {plainMessages.length === 0 && <div className="empty-text padded">No readable messages yet.</div>}
-            {plainMessages.map((message) => {
-              const canDelete = message.sender_id === profile.id || isStaff(profile.role);
-              return (
-                <div className={`chat-line ${message.sender_id === profile.id ? 'mine' : ''} ${message.failed ? 'failed' : ''}`} key={message.id}>
-                  <div className="chat-line-head">
-                    <strong>{displayUser(message.profiles)}</strong>
-                    {canDelete && <button type="button" onClick={() => deleteMessage(message.id)}>×</button>}
-                  </div>
-                  <span>{message.plain}</span>
-                  <small>{formatTime(message.created_at)}</small>
-                </div>
-              );
-            })}
-            <div ref={bottomRef} />
-          </div>
+              {!canDecrypt && <div className="warning-box">Enter the shared room key to read and send messages.</div>}
 
-          <TypingIndicator typers={activeTypers} />
+              <div className="chat-window popup-chat-window" aria-live="polite">
+                {plainMessages.length === 0 && <div className="empty-text padded">No readable messages yet.</div>}
+                {plainMessages.map((message) => {
+                  const canDelete = message.sender_id === profile.id || isStaff(profile.role);
+                  const color = userColor(message.profiles);
+                  return (
+                    <div className={`chat-line ${message.sender_id === profile.id ? 'mine' : ''} ${message.failed ? 'failed' : ''}`} key={message.id} style={{ '--member-color': color }}>
+                      <div className="chat-line-head">
+                        <div className="chat-author">
+                          <span className="chat-avatar" style={{ background: color }}>{displayUser(message.profiles).slice(0, 1).toUpperCase()}</span>
+                          <strong style={{ color }}>{displayUser(message.profiles)}</strong>
+                        </div>
+                        {canDelete && <button type="button" onClick={() => deleteMessage(message.id)}>×</button>}
+                      </div>
+                      <span>{message.plain}</span>
+                      <small>{formatTime(message.created_at)}</small>
+                    </div>
+                  );
+                })}
+                <div ref={bottomRef} />
+              </div>
 
-          <form className="chat-form popup-chat-form" onSubmit={send}>
-            <input
-              value={draft}
-              onChange={(event) => updateDraft(event.target.value)}
-              onBlur={() => sendTyping(false)}
-              placeholder={canDecrypt ? 'Write encrypted message…' : 'Enter room key first'}
-              disabled={!canDecrypt}
-              maxLength={2000}
-            />
-            <button className="primary-btn" disabled={!canDecrypt || busy}>{busy ? '…' : 'Send'}</button>
-          </form>
-          <p className="tiny-note">
-            Messages update live. Screenshot protection is a deterrent only; browsers cannot block every OS screenshot or camera photo.
-          </p>
+              <TypingIndicator typers={activeTypers} />
+
+              <form className="chat-form popup-chat-form" onSubmit={send}>
+                <input
+                  value={draft}
+                  onChange={(event) => updateDraft(event.target.value)}
+                  onBlur={() => sendTyping(false)}
+                  placeholder={canDecrypt ? 'Write message…' : 'Enter room key first'}
+                  disabled={!canDecrypt}
+                  maxLength={2000}
+                />
+                <button className="primary-btn" disabled={!canDecrypt || busy}>{busy ? '…' : 'Send'}</button>
+              </form>
+            </>
+          ) : (
+            <VoiceRoom profile={profile} compact />
+          )}
         </aside>
       )}
     </div>
@@ -916,7 +1095,7 @@ function RemoteAudio({ stream, label }) {
   );
 }
 
-function VoiceRoom({ profile }) {
+function VoiceRoom({ profile, compact = false }) {
   const [joined, setJoined] = useState(false);
   const [muted, setMuted] = useState(false);
   const [voiceError, setVoiceError] = useState('');
@@ -1112,11 +1291,11 @@ function VoiceRoom({ profile }) {
   useEffect(() => () => { stopVoice(); }, [stopVoice]);
 
   return (
-    <aside className="voice-card glass-card">
+    <aside className={`voice-card ${compact ? 'inside-chat' : 'glass-card'}`}>
       <div className="voice-head">
         <div>
           <h2>Live voice room</h2>
-          <p>Browser voice chat via WebRTC. Works best on Vercel HTTPS.</p>
+          <p>Browser voice chat for the group room. Works best on Vercel HTTPS.</p>
         </div>
         <span className={joined ? 'voice-status on' : 'voice-status'}>{joined ? 'Live' : 'Off'}</span>
       </div>
@@ -1144,7 +1323,7 @@ function VoiceRoom({ profile }) {
         ))}
       </div>
       <p className="tiny-note">
-        Voice media is encrypted by WebRTC in transit. Free setup uses public STUN only; some strict networks may need a TURN server later.
+        Free setup uses public STUN only; some strict networks may need a TURN server later.
         {joined ? ` Members in room: ${memberCount}.` : ''}
       </p>
     </aside>
@@ -1153,6 +1332,7 @@ function VoiceRoom({ profile }) {
 
 function ProfileCard({ profile, setProfile }) {
   const [displayName, setDisplayName] = useState(profile.display_name || '');
+  const [chatColor, setChatColor] = useState(userColor(profile));
   const [bio, setBio] = useState(profile.bio || '');
   const [saved, setSaved] = useState(false);
 
@@ -1160,7 +1340,7 @@ function ProfileCard({ profile, setProfile }) {
     e.preventDefault();
     const { data, error } = await supabase
       .from('profiles')
-      .update({ display_name: displayName.trim(), bio: bio.trim(), last_seen: new Date().toISOString() })
+      .update({ display_name: displayName.trim(), chat_color: chatColor, bio: bio.trim(), last_seen: new Date().toISOString() })
       .eq('id', profile.id)
       .select('*')
       .single();
@@ -1177,7 +1357,7 @@ function ProfileCard({ profile, setProfile }) {
     <aside className="side-card glass-card">
       <h2>Your anonymous profile</h2>
       <div className="profile-big">
-        <span className="avatar">{(displayName || profile.handle || '?').slice(0, 1).toUpperCase()}</span>
+        <span className="avatar" style={{ background: chatColor }}>{(displayName || profile.handle || '?').slice(0, 1).toUpperCase()}</span>
         <div>
           <strong>@{profile.handle}</strong>
           <small>{roleBadge(profile.role)}</small>
@@ -1187,6 +1367,15 @@ function ProfileCard({ profile, setProfile }) {
         <label>
           Display name
           <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={48} required />
+        </label>
+        <label>
+          Chat colour
+          <div className="color-picker-row">
+            <input className="color-input" type="color" value={chatColor} onChange={(e) => setChatColor(e.target.value)} />
+            <select value={chatColor} onChange={(e) => setChatColor(e.target.value)}>
+              {CHAT_COLORS.map((color) => <option key={color} value={color}>{color}</option>)}
+            </select>
+          </div>
         </label>
         <label>
           Bio
@@ -1202,6 +1391,13 @@ function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [siteSettings, setSiteSettings] = useState(DEFAULT_SITE_SETTINGS);
+  const [view, setView] = useState('feed');
+
+  const refreshSiteSettings = useCallback(async () => {
+    const next = await loadSiteSettings();
+    setSiteSettings(next);
+  }, []);
 
   const loadProfile = useCallback(async (userId) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
@@ -1214,6 +1410,8 @@ function App() {
       setLoading(false);
       return;
     }
+
+    refreshSiteSettings();
 
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session || null);
@@ -1231,41 +1429,39 @@ function App() {
     });
 
     return () => listener.subscription.unsubscribe();
-  }, [loadProfile]);
+  }, [loadProfile, refreshSiteSettings]);
 
-  if (!isConfigured()) return <SetupNotice />;
-  if (loading) return <main className="setup-shell"><div className="glass-card loading-card">Loading private agora…</div></main>;
-  if (!session || !profile) return <InviteGate onProfileReady={setProfile} />;
+  if (!isConfigured()) return <SetupNotice settings={siteSettings} />;
+  if (loading) return <main className="setup-shell"><div className="glass-card loading-card">Loading members area…</div></main>;
+  if (!session || !profile) return <InviteGate onProfileReady={setProfile} settings={siteSettings} />;
 
   return (
-    <Shell profile={profile} setProfile={setProfile}>
-      <main className="dashboard">
-        <section className="left-rail">
-          <ProfileCard profile={profile} setProfile={setProfile} />
-          <AdminPanel profile={profile} />
-          <InvitePanel profile={profile} />
-          <section className="side-card glass-card notice-card">
-            <h2>Privacy reality</h2>
-            <p>
-              The app hides content on blur, blocks print, disables casual copying, and watermarks the screen.
-              No website can fully prevent screenshots from the operating system or an external camera.
-            </p>
+    <Shell profile={profile} setProfile={setProfile} settings={siteSettings} view={view} setView={setView}>
+      {view === 'admin-site' && profile.role === 'admin' ? (
+        <AdminSiteSettings
+          settings={siteSettings}
+          onSettingsChanged={refreshSiteSettings}
+          goBack={() => setView('feed')}
+        />
+      ) : (
+        <main className="dashboard two-column">
+          <section className="left-rail">
+            <ProfileCard profile={profile} setProfile={setProfile} />
+            <AdminPanel profile={profile} />
+            <InvitePanel profile={profile} />
           </section>
-        </section>
-        <Feed profile={profile} />
-        <section className="right-rail">
-          <VoiceRoom profile={profile} />
-          <section className="side-card glass-card chants-card">
-            <span className="eyebrow">PIRAEUS BOARD</span>
-            <h2>Clean red-white community</h2>
-            <p>Use the feed for public member posts and the floating messenger for private encrypted group talk.</p>
+          <Feed profile={profile} settings={siteSettings} />
+          <section className="right-rail">
+            <section className="side-card glass-card chants-card">
+              <span className="eyebrow">PIRAEUS BOARD</span>
+              <h2>{siteSettings.community_title}</h2>
+              <p>{siteSettings.community_text}</p>
+            </section>
           </section>
-        </section>
-      </main>
+        </main>
+      )}
       <ChatPanel profile={profile} />
-      <footer className="footer-note">
-        Independent fan project. Official club marks/assets are not bundled; add only assets you are allowed to use in public/brand/.
-      </footer>
+      <footer className="footer-note">{siteSettings.footer_text}</footer>
     </Shell>
   );
 }
