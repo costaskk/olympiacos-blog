@@ -38,6 +38,7 @@ const DEFAULT_SITE_SETTINGS = {
 };
 
 const CHAT_COLORS = ['#e31b2f', '#ffffff', '#ffb703', '#2dd4bf', '#60a5fa', '#c084fc', '#fb7185', '#34d399'];
+const AUTH_EMAIL_DOMAIN = 'members.thrylos-agora.invalid';
 
 function formatTime(value) {
   if (!value) return '';
@@ -50,6 +51,24 @@ function formatTime(value) {
 function randomId() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeHandle(value = '') {
+  return String(value).toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24);
+}
+
+function memberLoginEmail(handle = '') {
+  return `${normalizeHandle(handle)}@${AUTH_EMAIL_DOMAIN}`;
+}
+
+function friendlyAuthError(error) {
+  const message = error?.message || String(error || '');
+  if (/invalid login credentials/i.test(message)) return 'Wrong handle or password.';
+  if (/email.*confirm|confirm.*email|not confirmed/i.test(message)) {
+    return 'Supabase email confirmations are enabled. Disable email confirmations for this private app, then try again.';
+  }
+  if (/password/i.test(message) && /six|6|weak|short/i.test(message)) return 'Password must be at least 6 characters.';
+  return message || 'Authentication failed.';
 }
 
 function displayUser(profile) {
@@ -301,32 +320,97 @@ function SetupNotice({ settings = DEFAULT_SITE_SETTINGS }) {
   );
 }
 
-function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS }) {
+function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS, session = null }) {
+  const [mode, setMode] = useState(new URLSearchParams(window.location.search).get('invite') ? 'register' : 'login');
   const [invite, setInvite] = useState(new URLSearchParams(window.location.search).get('invite') || '');
   const [handle, setHandle] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  async function readProfileForUser(userId) {
+    const { data, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    if (profileError || !data) throw new Error('This login does not have a finished profile yet. Open the Join with invite tab and finish the invite setup.');
+    return data;
+  }
+
+  async function login(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const cleanHandle = normalizeHandle(handle);
+      if (cleanHandle.length < 3) throw new Error('Handle must be at least 3 characters.');
+      if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: memberLoginEmail(cleanHandle),
+        password,
+      });
+      if (authError) throw new Error(friendlyAuthError(authError));
+      if (!data?.user) throw new Error('Login failed. Try again.');
+
+      const profileData = await readProfileForUser(data.user.id);
+      onProfileReady(profileData);
+    } catch (err) {
+      setError(err.message || 'Login failed');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function register(e) {
     e.preventDefault();
     setBusy(true);
     setError('');
+    setNotice('');
 
     try {
-      const { data: sessionData, error: authError } = await supabase.auth.signInAnonymously();
-      if (authError) throw authError;
-      if (!sessionData?.user) throw new Error('Anonymous sign-in failed. Check that anonymous sign-ins are enabled in Supabase Auth.');
+      const cleanHandle = normalizeHandle(handle);
+      const cleanInvite = invite.trim();
+      if (cleanHandle.length < 3) throw new Error('Handle must be at least 3 characters.');
+      if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+
+      let activeUser = session?.user || null;
+
+      if (activeUser && !activeUser.email) {
+        throw new Error('This browser is still signed in with an older anonymous session. Sign out first, then create the new login-enabled account with your invite.');
+      }
+
+      if (!activeUser) {
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: memberLoginEmail(cleanHandle),
+          password,
+          options: {
+            data: {
+              handle: cleanHandle,
+              display_name: displayName.trim() || cleanHandle,
+            },
+          },
+        });
+
+        if (signUpError) throw new Error(friendlyAuthError(signUpError));
+
+        if (!signUpData?.session?.user) {
+          throw new Error('Account was created but no session was returned. In Supabase, disable email confirmation for this private app, then use Login with the same handle and password.');
+        }
+
+        activeUser = signUpData.session.user;
+      }
 
       const { data, error: rpcError } = await supabase.rpc('accept_invite', {
-        raw_token: invite.trim(),
-        chosen_handle: handle.trim(),
-        chosen_display_name: displayName.trim() || handle.trim(),
+        raw_token: cleanInvite,
+        chosen_handle: cleanHandle,
+        chosen_display_name: displayName.trim() || cleanHandle,
       });
       if (rpcError) throw rpcError;
       onProfileReady(data);
+      setNotice('Account created. From now on, log in with your handle and password.');
     } catch (err) {
-      await supabase.auth.signOut();
       setError(err.message || 'Registration failed');
     } finally {
       setBusy(false);
@@ -347,59 +431,118 @@ function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS }) {
         <p>{settings.gate_intro}</p>
         <div className="hero-grid">
           <span>One-use invite links</span>
-          <span>Clean moderated feed</span>
+          <span>Handle + password login</span>
           <span>Live popup chat</span>
           <span>Voice room tab</span>
         </div>
       </section>
 
-      <form className="gate-card glass-card" onSubmit={register}>
-        <h2>Enter with invite</h2>
-        <label>
-          Invite token or full invite link
-          <input
-            value={invite}
-            onChange={(e) => {
-              const value = e.target.value;
-              try {
-                const url = new URL(value);
-                setInvite(url.searchParams.get('invite') || value);
-              } catch {
-                setInvite(value);
-              }
-            }}
-            placeholder="founder-... or one-use token"
-            required
-          />
-        </label>
-        <label>
-          Anonymous handle
-          <input
-            value={handle}
-            onChange={(e) => setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-            placeholder="gate7_anon"
-            minLength={3}
-            maxLength={24}
-            required
-          />
-        </label>
-        <label>
-          Display name
-          <input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Red Member"
-            maxLength={48}
-          />
-        </label>
-        {error && <div className="error-box">{error}</div>}
-        <button className="primary-btn" type="submit" disabled={busy}>
-          {busy ? 'Creating anonymous account…' : 'Join privately'}
-        </button>
-        <p className="tiny-note">
-          Admin setup uses a special founder invite. Normal users still need only an anonymous invite link.
-        </p>
-      </form>
+      <section className="gate-card glass-card">
+        <div className="gate-tabs" role="tablist" aria-label="Member access">
+          <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError(''); setNotice(''); }}>Login</button>
+          <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError(''); setNotice(''); }}>Join with invite</button>
+        </div>
+
+        {mode === 'login' ? (
+          <form className="gate-form" onSubmit={login}>
+            <h2>Login</h2>
+            <p className="gate-intro-text">Use the handle and password you chose when you joined with an invite.</p>
+            <label>
+              Handle
+              <input
+                value={handle}
+                onChange={(e) => setHandle(normalizeHandle(e.target.value))}
+                placeholder="costaskk"
+                minLength={3}
+                maxLength={24}
+                autoComplete="username"
+                required
+              />
+            </label>
+            <label>
+              Password
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Your private password"
+                type="password"
+                minLength={6}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            {error && <div className="error-box">{error}</div>}
+            {notice && <div className="success-box">{notice}</div>}
+            <button className="primary-btn" type="submit" disabled={busy}>
+              {busy ? 'Logging in…' : 'Login'}
+            </button>
+            <p className="tiny-note">No real email is needed. The app uses a private internal login address behind the scenes.</p>
+          </form>
+        ) : (
+          <form className="gate-form" onSubmit={register}>
+            <h2>Enter with invite</h2>
+            {session?.user && !session.user.email && (
+              <div className="warning-box">You are currently using an older anonymous browser session. To create a login-enabled account, sign out first, then join with an invite using a handle and password.</div>
+            )}
+            <label>
+              Invite token or full invite link
+              <input
+                value={invite}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  try {
+                    const url = new URL(value);
+                    setInvite(url.searchParams.get('invite') || value);
+                  } catch {
+                    setInvite(value);
+                  }
+                }}
+                placeholder="founder-... or one-use token"
+                required
+              />
+            </label>
+            <label>
+              Anonymous handle
+              <input
+                value={handle}
+                onChange={(e) => setHandle(normalizeHandle(e.target.value))}
+                placeholder="gate7_anon"
+                minLength={3}
+                maxLength={24}
+                autoComplete="username"
+                required
+              />
+            </label>
+            <label>
+              Display name
+              <input
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Red Member"
+                maxLength={48}
+              />
+            </label>
+            <label>
+              Login password
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 6 characters"
+                type="password"
+                minLength={6}
+                autoComplete="new-password"
+                required
+              />
+            </label>
+            {error && <div className="error-box">{error}</div>}
+            {notice && <div className="success-box">{notice}</div>}
+            <button className="primary-btn" type="submit" disabled={busy}>
+              {busy ? 'Creating account…' : 'Join privately'}
+            </button>
+            <p className="tiny-note">After joining once, use the Login tab with the same handle and password. Invites remain one-use only.</p>
+          </form>
+        )}
+      </section>
     </main>
   );
 }
@@ -422,7 +565,7 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
   }, []);
 
   async function signOut() {
-    const ok = window.confirm('This is an anonymous account. If you sign out, you may lose access to this identity. Continue?');
+    const ok = window.confirm('Sign out? Accounts created with v5.4+ can log back in with handle and password. Older anonymous accounts may lose access.');
     if (!ok) return;
     await supabase.auth.signOut();
     setProfile(null);
@@ -2406,7 +2549,7 @@ function App() {
 
   if (!isConfigured()) return <SetupNotice settings={siteSettings} />;
   if (loading) return <main className="setup-shell"><div className="glass-card loading-card">Loading members area…</div></main>;
-  if (!session || !profile) return <InviteGate onProfileReady={setProfile} settings={siteSettings} />;
+  if (!session || !profile) return <InviteGate onProfileReady={setProfile} settings={siteSettings} session={session} />;
 
   return (
     <Shell profile={profile} setProfile={setProfile} settings={siteSettings} view={view} setView={setView}>

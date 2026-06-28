@@ -2457,3 +2457,50 @@ body::before {
     --avatar-size: 50px;
   }
 }
+
+.gate-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.gate-tabs button {
+  border: 0;
+  border-radius: 14px;
+  padding: 0.82rem 0.9rem;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.gate-tabs button.active {
+  color: white;
+  background: linear-gradient(135deg, rgba(209, 0, 25, 0.78), rgba(255, 255, 255, 0.12));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.gate-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.gate-intro-text {
+  margin: -0.3rem 0 0.2rem;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+
+.success-box {
+  border: 1px solid rgba(45, 212, 191, 0.4);
+  border-radius: 16px;
+  color: #d8fffb;
+  background: rgba(45, 212, 191, 0.12);
+  padding: 0.85rem 1rem;
+  line-height: 1.45;
+}

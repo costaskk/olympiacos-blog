@@ -1,8 +1,16 @@
 # Thrylos Agora
 
-Modern red-white private fan blog with invite-only anonymous registration, member posts, images, news links, YouTube embeds, comments, live group chat, typing indicators, user colour customization, a voice room inside the group chat popup, and admin-controlled site branding.
+Modern red-white private fan blog with invite-only registration, handle/password login, member posts, images, news links, YouTube embeds, comments, live group chat, typing indicators, user colour customization, a voice room inside the group chat popup, and admin-controlled site branding.
 
 This project includes original red-white fallback artwork. Official club logos/photos are not bundled. Add only assets you are allowed to use.
+
+## v5.4 login update
+
+- New **Login** tab on the invite screen.
+- New members now choose a handle and password when they use an invite.
+- After joining once, they can log back in with the same handle/password.
+- No real email is requested from members. The app creates a private internal Supabase Auth address from the handle.
+- Invites remain one-use only; the login is for the account created from the invite.
 
 ## v5 changes
 
@@ -46,11 +54,14 @@ Recommended:
 
 Create a Supabase project.
 
-Enable:
+Enable/configure:
 
 ```txt
-Authentication → Providers → Anonymous Sign-Ins
+Authentication → Providers → Email → Enable Email provider
+Authentication → Providers → Email → Confirm email OFF
 ```
+
+You can leave anonymous sign-ins enabled for older test accounts, but the recommended flow from v5.4 onward is handle + password login. Because members do not provide real email addresses, email confirmation must be OFF.
 
 Then open:
 
@@ -80,13 +91,13 @@ Copy the returned token. It starts with:
 founder-
 ```
 
-Open your site like this:
+Open your site like this and create the admin with a handle and password:
 
 ```txt
 https://your-site.vercel.app/?invite=PASTE_TOKEN_HERE
 ```
 
-The account created with that invite becomes admin.
+The account created with that invite becomes admin. After that, use the Login tab with the same handle and password.
 
 ### 3. Configure the frontend
 
@@ -156,7 +167,7 @@ npm run build
 
 git status
 git add .
-git commit -m "Polish chat layout voice room and modern blog UI"
+git commit -m "Add handle password login"
 git push origin main
 ```
 
@@ -183,6 +194,14 @@ The normal post images bucket remains:
 ```txt
 post-images
 ```
+
+## Member login
+
+Members join once with an invite token, a handle, and a password. After that, they can use the **Login** tab with only their handle and password.
+
+The app does not ask for a real email. Internally, it creates a private Supabase Auth email from the handle, like `handle@members.thrylos-agora.invalid`, only so Supabase can manage secure password login.
+
+Important: accounts created in old versions with anonymous-only auth cannot be recovered after logout unless the browser still has the old session. Create a new admin invite once, register with handle/password, and use that account going forward.
 
 ## Member customization
 
