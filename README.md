@@ -306,3 +306,8 @@ Windows helper:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\fix-recording.ps1 "C:\Path\to\thrylos-voice.webm"
 ```
+
+
+## v5.5 UI polish update
+
+This version adds custom confirmation modals for deleting posts, comments and group-chat messages, plus a full visual pass for dropdowns, file/image upload controls and action buttons. The delete flow no longer uses the browser default confirm box for moderation actions.

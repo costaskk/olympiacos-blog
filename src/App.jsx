@@ -110,6 +110,27 @@ function UserAvatar({ profile, name, color, className = '', title = '' }) {
   );
 }
 
+
+function ConfirmModal({ open, title, body, confirmLabel = 'Confirm', cancelLabel = 'Cancel', tone = 'danger', onConfirm, onCancel }) {
+  if (!open) return null;
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel?.(); }}>
+      <section className={`confirm-modal ${tone}`} role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+        <div className="modal-mark" aria-hidden="true">!</div>
+        <div className="modal-copy">
+          <span className="eyebrow">MODERATION ACTION</span>
+          <h2 id="confirm-modal-title">{title}</h2>
+          <p>{body}</p>
+        </div>
+        <div className="modal-actions">
+          <button className="ghost-btn" type="button" onClick={onCancel}>{cancelLabel}</button>
+          <button className="danger-btn modal-confirm-btn" type="button" onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function createVoiceProcessingChain(audioContext, source, destination) {
   const highpass = audioContext.createBiquadFilter();
   highpass.type = 'highpass';
@@ -681,9 +702,10 @@ function Composer({ profile, onCreated }) {
         maxLength={12000}
       />
       <div className="composer-grid">
-        <label>
-          Image
+        <label className="upload-label">
+          <span>Image</span>
           <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setImage(e.target.files?.[0] || null)} />
+          <em>{image ? image.name : 'Upload PNG, JPG, WebP or GIF'}</em>
         </label>
         <label>
           YouTube URL
@@ -704,6 +726,7 @@ function PostCard({ post, profile, onChanged }) {
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const author = post.profiles;
   const youtubeId = getYoutubeId(post.video_url);
   const canDelete = post.author_id === profile.id || isStaff(profile.role);
@@ -744,22 +767,52 @@ function PostCard({ post, profile, onChanged }) {
     if (!error) setCommentText('');
   }
 
-  async function deletePost() {
-    if (!window.confirm('Delete this post?')) return;
-    const { error } = await supabase.from('posts').delete().eq('id', post.id);
-    if (error) alert(error.message);
-    onChanged?.();
+  function deletePost() {
+    setDeleteTarget({
+      kind: 'post',
+      title: 'Delete this post?',
+      body: 'This removes the post from the members feed. Comments attached to it will no longer be visible.',
+      confirmLabel: 'Delete post',
+    });
   }
 
-  async function deleteComment(commentId) {
-    if (!window.confirm('Delete this comment?')) return;
-    const { error } = await supabase.from('comments').delete().eq('id', commentId);
-    if (error) alert(error.message);
-    loadComments();
+  function deleteComment(commentId) {
+    setDeleteTarget({
+      kind: 'comment',
+      commentId,
+      title: 'Delete this comment?',
+      body: 'This comment will be removed from the discussion thread for every member.',
+      confirmLabel: 'Delete comment',
+    });
+  }
+
+  async function confirmDeleteTarget() {
+    const target = deleteTarget;
+    if (!target) return;
+    setDeleteTarget(null);
+    if (target.kind === 'post') {
+      const { error } = await supabase.from('posts').delete().eq('id', post.id);
+      if (error) alert(error.message);
+      onChanged?.();
+      return;
+    }
+    if (target.kind === 'comment') {
+      const { error } = await supabase.from('comments').delete().eq('id', target.commentId);
+      if (error) alert(error.message);
+      loadComments();
+    }
   }
 
   return (
     <article className="post-card glass-card">
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        title={deleteTarget?.title}
+        body={deleteTarget?.body}
+        confirmLabel={deleteTarget?.confirmLabel}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={confirmDeleteTarget}
+      />
       <header className="post-header">
         <div className="post-author-lockup">
           <UserAvatar profile={author} className="post-avatar" />
@@ -770,7 +823,7 @@ function PostCard({ post, profile, onChanged }) {
         </div>
         <div className="post-actions">
           <span className={`kind-pill ${post.kind}`}>{post.kind}</span>
-          {canDelete && <button className="ghost-btn compact" type="button" onClick={deletePost}>Delete</button>}
+          {canDelete && <button className="danger-mini-btn" type="button" onClick={deletePost}>Delete</button>}
         </div>
       </header>
 
@@ -807,7 +860,7 @@ function PostCard({ post, profile, onChanged }) {
                   <UserAvatar profile={comment.profiles} className="comment-avatar" />
                   <strong>{displayUser(comment.profiles)}</strong>
                 </span>
-                {canDeleteComment && <button type="button" onClick={() => deleteComment(comment.id)}>Delete</button>}
+                {canDeleteComment && <button className="danger-mini-btn" type="button" onClick={() => deleteComment(comment.id)}>Delete</button>}
               </div>
               <span>{comment.body}</span>
             </div>
@@ -1226,6 +1279,7 @@ function ChatPanel({ profile }) {
   const [busy, setBusy] = useState(false);
   const [activeTypers, setActiveTypers] = useState({});
   const [unreadCount, setUnreadCount] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const bottomRef = useRef(null);
   const chatChannelRef = useRef(null);
   const typingTimersRef = useRef(new Map());
@@ -1369,8 +1423,14 @@ function ChatPanel({ profile }) {
     }
   }
 
-  async function deleteMessage(messageId) {
-    if (!window.confirm('Delete this message?')) return;
+  function deleteMessage(messageId) {
+    setDeleteTarget({ messageId });
+  }
+
+  async function confirmDeleteMessage() {
+    if (!deleteTarget?.messageId) return;
+    const messageId = deleteTarget.messageId;
+    setDeleteTarget(null);
     const { error } = await supabase.from('encrypted_messages').delete().eq('id', messageId);
     if (error) alert(error.message);
     loadMessages();
@@ -1398,6 +1458,14 @@ function ChatPanel({ profile }) {
 
   return (
     <div className={`chat-popup ${isOpen ? 'open' : 'closed'}`}>
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        title="Delete this chat message?"
+        body="This removes the message from the live group room for every member."
+        confirmLabel="Delete message"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={confirmDeleteMessage}
+      />
       {!isOpen && (
         <button className="chat-launcher" type="button" onClick={() => setIsOpen(true)} aria-label="Open group chat">
           <span className="launcher-icon">💬</span>
@@ -1455,7 +1523,7 @@ function ChatPanel({ profile }) {
                           <UserAvatar profile={messageProfile} color={color} className="chat-avatar" />
                           <strong style={{ color }}>{displayUser(messageProfile)}</strong>
                         </div>
-                        {canDelete && <button type="button" onClick={() => deleteMessage(message.id)}>×</button>}
+                        {canDelete && <button className="chat-delete-btn" type="button" aria-label="Delete message" onClick={() => deleteMessage(message.id)}>×</button>}
                       </div>
                       <span>{message.plain}</span>
                       <small>{formatTime(message.created_at)}</small>
