@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { supabase, isConfigured } from './lib/supabase.js';
-import { decryptMessage, encryptMessage, makeRoomSecret } from './lib/crypto.js';
 import { getYoutubeId, isSafeUrl } from './lib/youtube.js';
 import './styles.css';
 
@@ -21,17 +20,42 @@ const MIC_CONSTRAINTS = {
   sampleRate: 48000,
 };
 
+function micConstraintsForDevice(deviceId = '') {
+  const constraints = { ...MIC_CONSTRAINTS };
+  if (deviceId) constraints.deviceId = { exact: deviceId };
+  return constraints;
+}
+
+function friendlyMicError(error) {
+  const name = error?.name || '';
+  const message = error?.message || '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return 'Microphone permission is blocked. Allow the microphone from the browser address-bar/site settings and Windows microphone privacy settings.';
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return 'No microphone input was found. In Windows Sound settings, make sure your Bluetooth headset mic is connected as an input device, then press Refresh mics.';
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'The microphone is busy or could not start. Close Discord/Steam/other voice apps, reconnect the headset, then try again.';
+  }
+  if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
+    return 'That microphone could not be opened with the selected settings. Choose System default or press Refresh mics.';
+  }
+  return message || 'Microphone permission failed. Check browser and Windows microphone settings.';
+}
+
+
 const DEFAULT_SITE_SETTINGS = {
   site_title: 'Thrylos Agora',
   tagline: 'Anonymous. Invite-only. Red-white agora.',
   header_tagline: 'Independent red-white community',
   gate_heading: 'A clean private red-white blog built for matchday talk.',
-  gate_intro: 'Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join the live group room with messages and voice, using only a one-use invite.',
+  gate_intro: 'Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join the live general chat, private messages, group rooms, and voice room using only a one-use invite.',
   feed_eyebrow: 'ΘΡΥΛΟΣ AGORA · MEMBERS BOARD',
   feed_heading: 'The red-white feed for news, reactions and member posts.',
   feed_intro: 'A polished members-only board for match reactions, transfer rumours, news links, images, clips and live community talk.',
   community_title: 'Red-white community hub',
-  community_text: 'Post carefully, keep the board clean, and use the floating room for live matchday conversation.',
+  community_text: 'Post carefully, keep the board clean, and use the floating chat for general talk, private messages and matchday rooms.',
   footer_text: 'Private red-white members area · built for clean matchday discussion.',
   logo_url: '',
   hero_url: '',
@@ -453,8 +477,8 @@ function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS, session 
         <div className="hero-grid">
           <span>One-use invite links</span>
           <span>Handle + password login</span>
-          <span>Live popup chat</span>
-          <span>Voice room tab</span>
+          <span>Live general chat</span>
+          <span>Private & group rooms</span>
         </div>
       </section>
 
@@ -900,7 +924,7 @@ function HomeHighlights({ profile }) {
       <article className="highlight-card glass-card">
         <span className="highlight-kicker">MATCHDAY</span>
         <strong>Live reactions</strong>
-        <p>Use the feed for longer thoughts and the popup room for instant red-white talk.</p>
+        <p>Use the feed for longer thoughts and the popup chat for instant red-white talk.</p>
       </article>
       <article className="highlight-card glass-card">
         <span className="highlight-kicker">MEDIA</span>
@@ -910,12 +934,12 @@ function HomeHighlights({ profile }) {
       <article className="highlight-card glass-card">
         <span className="highlight-kicker">ROOM</span>
         <strong>Chat & voice</strong>
-        <p>The lower-right group room updates live and includes a voice tab for members.</p>
+        <p>The lower-right chat updates live, supports private rooms, and includes a voice tab.</p>
       </article>
       <article className="highlight-card glass-card member-highlight" style={{ '--member-color': userColor(profile) }}>
         <span className="highlight-kicker">YOU</span>
         <strong>{displayUser(profile)}</strong>
-        <p>Your name and chat colour are shown across the live room.</p>
+        <p>Your name, colour and profile image are shown across chat and voice.</p>
       </article>
     </section>
   );
@@ -1053,7 +1077,7 @@ function AdminPanel({ profile }) {
     const [{ data: memberRows }, postCount, messageCount] = await Promise.all([
       supabase.from('profiles').select('id, handle, display_name, role, created_at, last_seen').order('created_at', { ascending: false }).limit(50),
       supabase.from('posts').select('id', { count: 'exact', head: true }),
-      supabase.from('encrypted_messages').select('id', { count: 'exact', head: true }),
+      supabase.from('chat_messages').select('id', { count: 'exact', head: true }),
     ]);
     setMembers(memberRows || []);
     setStats({ members: memberRows?.length || 0, posts: postCount.count || 0, messages: messageCount.count || 0 });
@@ -1272,21 +1296,27 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
 function ChatPanel({ profile }) {
   const [isOpen, setIsOpen] = useState(() => localStorage.getItem('chat-popup-open') !== '0');
   const [activeTab, setActiveTab] = useState('messages');
-  const [roomSecret, setRoomSecret] = useState(sessionStorage.getItem('room-secret') || '');
+  const [threads, setThreads] = useState([]);
+  const [activeThreadId, setActiveThreadId] = useState('');
   const [messages, setMessages] = useState([]);
-  const [plainMessages, setPlainMessages] = useState([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [activeTypers, setActiveTypers] = useState({});
   const [unreadCount, setUnreadCount] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [memberList, setMemberList] = useState([]);
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState([]);
+  const [newChatTitle, setNewChatTitle] = useState('');
+  const [chatError, setChatError] = useState('');
   const bottomRef = useRef(null);
   const chatChannelRef = useRef(null);
   const typingTimersRef = useRef(new Map());
   const lastTypingSentRef = useRef(0);
   const isOpenRef = useRef(isOpen);
+  const activeThreadIdRef = useRef(activeThreadId);
 
-  const canDecrypt = roomSecret.trim().length >= 10;
+  const activeThread = useMemo(() => threads.find((thread) => thread.id === activeThreadId) || null, [threads, activeThreadId]);
 
   useEffect(() => {
     isOpenRef.current = isOpen;
@@ -1294,21 +1324,85 @@ function ChatPanel({ profile }) {
     if (isOpen) setUnreadCount(0);
   }, [isOpen]);
 
+  useEffect(() => {
+    activeThreadIdRef.current = activeThreadId;
+  }, [activeThreadId]);
+
+  function threadMembers(thread) {
+    return (thread?.chat_thread_members || []).map((member) => member.profiles).filter(Boolean);
+  }
+
+  function threadLabel(thread) {
+    if (!thread) return 'General chat';
+    if (thread.is_general) return 'General chat';
+    if (thread.title && thread.title.trim()) return thread.title.trim();
+    const others = threadMembers(thread).filter((member) => member.id !== profile.id);
+    if (others.length === 1) return displayUser(others[0]);
+    if (others.length > 1) {
+      const names = others.slice(0, 3).map(displayUser).join(', ');
+      return others.length > 3 ? `${names} +${others.length - 3}` : names;
+    }
+    return 'Private chat';
+  }
+
+  function threadSubtitle(thread) {
+    if (!thread) return '';
+    if (thread.is_general) return 'Everyone';
+    const count = threadMembers(thread).length;
+    return `${count || 1} member${count === 1 ? '' : 's'}`;
+  }
+
+  const loadMembers = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, handle, display_name, role, chat_color, avatar_url')
+      .neq('id', profile.id)
+      .order('display_name', { ascending: true });
+    if (!error) setMemberList(data || []);
+  }, [profile.id]);
+
+  const loadThreads = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('chat_threads')
+      .select('id, title, is_general, created_by, created_at, updated_at, chat_thread_members(user_id, profiles(id, handle, display_name, role, chat_color, avatar_url))')
+      .order('is_general', { ascending: false })
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      setChatError('Chat tables are not ready yet. Run the latest supabase/schema.sql once.');
+      return;
+    }
+
+    const next = data || [];
+    setChatError('');
+    setThreads(next);
+    setActiveThreadId((current) => {
+      if (current && next.some((thread) => thread.id === current)) return current;
+      return next.find((thread) => thread.is_general)?.id || next[0]?.id || '';
+    });
+  }, []);
+
   const loadMessages = useCallback(async () => {
-    const { data } = await supabase
-      .from('encrypted_messages')
-      .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    setMessages((data || []).reverse());
+    if (!activeThreadIdRef.current) {
+      setMessages([]);
+      return;
+    }
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .select('*, profiles(id, handle, display_name, role, chat_color, avatar_url)')
+      .eq('thread_id', activeThreadIdRef.current)
+      .order('created_at', { ascending: true })
+      .limit(150);
+    if (!error) setMessages(data || []);
   }, []);
 
   const sendTyping = useCallback(async (isTyping) => {
-    if (!chatChannelRef.current) return;
+    if (!chatChannelRef.current || !activeThreadIdRef.current) return;
     await chatChannelRef.current.send({
       type: 'broadcast',
       event: 'typing',
       payload: {
+        thread_id: activeThreadIdRef.current,
         user_id: profile.id,
         name: displayUser(profile),
         color: userColor(profile),
@@ -1330,27 +1424,42 @@ function ChatPanel({ profile }) {
   }, []);
 
   useEffect(() => {
-    loadMessages();
+    loadMembers();
+    loadThreads();
 
     const channel = supabase
-      .channel('private-group-chat-room', { config: { broadcast: { self: false } } })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadMessages)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'encrypted_messages' }, () => {
+      .channel(`member-chat-${profile.id}`, { config: { broadcast: { self: false } } })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_threads' }, loadThreads)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_thread_members' }, () => {
+        loadThreads();
+        loadMembers();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, () => {
+        loadMembers();
+        loadThreads();
         loadMessages();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, (payload) => {
+        const threadId = payload.new?.thread_id || payload.old?.thread_id;
+        if (threadId === activeThreadIdRef.current) loadMessages();
+        loadThreads();
+        if (payload.eventType === 'INSERT' && payload.new?.sender_id !== profile.id) {
+          if (!isOpenRef.current || threadId !== activeThreadIdRef.current) setUnreadCount((count) => count + 1);
+        }
       })
       .on('broadcast', { event: 'message-created' }, ({ payload }) => {
-        if (payload?.sender_id !== profile.id && !isOpenRef.current) {
+        if (payload?.thread_id === activeThreadIdRef.current) loadMessages();
+        loadThreads();
+        if (payload?.sender_id !== profile.id && (!isOpenRef.current || payload?.thread_id !== activeThreadIdRef.current)) {
           setUnreadCount((count) => count + 1);
         }
-        loadMessages();
       })
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
-        if (!payload || payload.user_id === profile.id) return;
+        if (!payload || payload.user_id === profile.id || payload.thread_id !== activeThreadIdRef.current) return;
         if (!payload.is_typing) {
           clearTyper(payload.user_id);
           return;
         }
-
         setActiveTypers((current) => ({ ...current, [payload.user_id]: { name: payload.name || 'Member', color: payload.color || '#e31b2f' } }));
         const oldTimer = typingTimersRef.current.get(payload.user_id);
         if (oldTimer) window.clearTimeout(oldTimer);
@@ -1367,45 +1476,27 @@ function ChatPanel({ profile }) {
       supabase.removeChannel(channel);
       chatChannelRef.current = null;
     };
-  }, [clearTyper, loadMessages, profile.id]);
+  }, [clearTyper, loadMembers, loadMessages, loadThreads, profile.id]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function decryptAll() {
-      if (!canDecrypt) {
-        setPlainMessages([]);
-        return;
-      }
-      sessionStorage.setItem('room-secret', roomSecret);
-      const output = [];
-      for (const message of messages) {
-        try {
-          const plain = await decryptMessage(message, roomSecret);
-          output.push({ ...message, plain, failed: false });
-        } catch {
-          output.push({ ...message, plain: 'Cannot read with this room key.', failed: true });
-        }
-      }
-      if (!cancelled) setPlainMessages(output);
-    }
-    decryptAll();
-    return () => { cancelled = true; };
-  }, [messages, roomSecret, canDecrypt]);
+    setActiveTypers({});
+    loadMessages();
+  }, [activeThreadId, loadMessages]);
 
   useEffect(() => {
-    if (isOpen) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [plainMessages.length, isOpen]);
+    if (isOpen && activeTab === 'messages') bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length, isOpen, activeTab]);
 
   async function send(e) {
     e.preventDefault();
-    if (!draft.trim() || !canDecrypt) return;
+    if (!draft.trim() || !activeThreadId) return;
     setBusy(true);
     try {
-      const encrypted = await encryptMessage(draft.trim(), roomSecret);
-      const { data, error } = await supabase.from('encrypted_messages').insert({
+      const { data, error } = await supabase.from('chat_messages').insert({
+        thread_id: activeThreadId,
         sender_id: profile.id,
-        ...encrypted,
-      }).select('id').single();
+        body: draft.trim(),
+      }).select('id, thread_id').single();
       if (error) throw error;
 
       setDraft('');
@@ -1413,9 +1504,10 @@ function ChatPanel({ profile }) {
       await chatChannelRef.current?.send({
         type: 'broadcast',
         event: 'message-created',
-        payload: { id: data?.id, sender_id: profile.id },
+        payload: { id: data?.id, thread_id: data?.thread_id || activeThreadId, sender_id: profile.id },
       }).catch(() => null);
-      loadMessages();
+      await loadMessages();
+      await loadThreads();
     } catch (err) {
       alert(err.message || 'Could not send message');
     } finally {
@@ -1431,16 +1523,9 @@ function ChatPanel({ profile }) {
     if (!deleteTarget?.messageId) return;
     const messageId = deleteTarget.messageId;
     setDeleteTarget(null);
-    const { error } = await supabase.from('encrypted_messages').delete().eq('id', messageId);
+    const { error } = await supabase.from('chat_messages').delete().eq('id', messageId);
     if (error) alert(error.message);
     loadMessages();
-  }
-
-  function generateSecret() {
-    const secret = makeRoomSecret();
-    setRoomSecret(secret);
-    sessionStorage.setItem('room-secret', secret);
-    navigator.clipboard?.writeText(secret).catch(() => null);
   }
 
   function updateDraft(value) {
@@ -1456,22 +1541,85 @@ function ChatPanel({ profile }) {
     }
   }
 
+  function toggleSelectedMember(memberId) {
+    setSelectedMemberIds((current) => current.includes(memberId) ? current.filter((id) => id !== memberId) : [...current, memberId]);
+  }
+
+  async function createThread(e) {
+    e.preventDefault();
+    if (selectedMemberIds.length === 0) return;
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.rpc('create_chat_thread', {
+        thread_title: newChatTitle.trim() || null,
+        member_ids: selectedMemberIds,
+      });
+      if (error) throw error;
+      setNewChatOpen(false);
+      setSelectedMemberIds([]);
+      setNewChatTitle('');
+      await loadThreads();
+      setActiveThreadId(data);
+      setActiveTab('messages');
+    } catch (err) {
+      alert(err.message || 'Could not create chat');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className={`chat-popup ${isOpen ? 'open' : 'closed'}`}>
       <ConfirmModal
         open={Boolean(deleteTarget)}
         title="Delete this chat message?"
-        body="This removes the message from the live group room for every member."
+        body="This removes the message from the selected chat for everyone who has access to it."
         confirmLabel="Delete message"
         onCancel={() => setDeleteTarget(null)}
         onConfirm={confirmDeleteMessage}
       />
+
+      {newChatOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNewChatOpen(false); }}>
+          <section className="confirm-modal chat-create-modal" role="dialog" aria-modal="true" aria-labelledby="new-chat-title">
+            <div className="modal-mark" aria-hidden="true">+</div>
+            <div className="modal-copy">
+              <h2 id="new-chat-title">Create private chat</h2>
+              <p>Select one user for a private message or multiple members for a group chat.</p>
+              <form className="new-chat-form" onSubmit={createThread}>
+                <label>
+                  Group title <small>optional</small>
+                  <input value={newChatTitle} onChange={(e) => setNewChatTitle(e.target.value)} placeholder="Example: Matchday voice crew" maxLength={80} />
+                </label>
+                <div className="member-picker" role="listbox" aria-label="Select chat members">
+                  {memberList.length === 0 && <span className="empty-text">No other members yet.</span>}
+                  {memberList.map((member) => {
+                    const selected = selectedMemberIds.includes(member.id);
+                    return (
+                      <button key={member.id} type="button" className={`member-pick ${selected ? 'selected' : ''}`} onClick={() => toggleSelectedMember(member.id)}>
+                        <UserAvatar profile={member} className="member-pick-avatar" />
+                        <span><strong>{displayUser(member)}</strong><small>@{member.handle}</small></span>
+                        <i>{selected ? '✓' : '+'}</i>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="modal-actions">
+                  <button className="ghost-btn" type="button" onClick={() => setNewChatOpen(false)}>Cancel</button>
+                  <button className="primary-btn" type="submit" disabled={busy || selectedMemberIds.length === 0}>{busy ? 'Creating…' : 'Create chat'}</button>
+                </div>
+              </form>
+            </div>
+          </section>
+        </div>
+      )}
+
       {!isOpen && (
-        <button className="chat-launcher" type="button" onClick={() => setIsOpen(true)} aria-label="Open group chat">
+        <button className="chat-launcher" type="button" onClick={() => setIsOpen(true)} aria-label="Open chat">
           <span className="launcher-icon">💬</span>
           <span>
-            <strong>Group chat</strong>
-            <small>{unreadCount > 0 ? `${unreadCount} new` : 'Messages and voice room'}</small>
+            <strong>Chat</strong>
+            <small>{unreadCount > 0 ? `${unreadCount} new` : 'General, private and voice'}</small>
           </span>
         </button>
       )}
@@ -1480,72 +1628,86 @@ function ChatPanel({ profile }) {
         <aside className="chat-card glass-card popup-card">
           <div className="popup-chat-titlebar">
             <div>
-              <span className="eyebrow">LIVE GROUP ROOM</span>
-              <h2>Group chat</h2>
+              <span className="eyebrow">LIVE CHAT</span>
+              <h2>{activeTab === 'voice' ? 'Voice chat' : 'Messages'}</h2>
             </div>
             <div className="popup-chat-actions">
+              <button className="ghost-btn compact" type="button" onClick={() => setNewChatOpen(true)}>New chat</button>
               <button className="ghost-btn compact" type="button" onClick={() => setIsOpen(false)}>Close</button>
             </div>
           </div>
 
-          <div className="chat-subtabs" role="tablist" aria-label="Group room options">
+          <div className="chat-subtabs" role="tablist" aria-label="Chat options">
             <button type="button" className={activeTab === 'messages' ? 'active' : ''} onClick={() => setActiveTab('messages')}>Messages</button>
             <button type="button" className={activeTab === 'voice' ? 'active' : ''} onClick={() => setActiveTab('voice')}>Voice chat</button>
           </div>
 
           {activeTab === 'messages' ? (
-            <div className="chat-tab-panel messages-panel">
-              <div className="room-key-box popup-key-box">
-                <label>
-                  Group room passphrase
-                  <input
-                    type="password"
-                    value={roomSecret}
-                    onChange={(event) => setRoomSecret(event.target.value)}
-                    placeholder="Shared room key"
-                  />
-                </label>
-                <button type="button" className="ghost-btn" onClick={generateSecret}>Generate</button>
-              </div>
+            <div className="chat-tab-panel messages-panel no-passphrase-panel">
+              {chatError && <div className="warning-box">{chatError}</div>}
+              <div className="chat-layout">
+                <aside className="thread-list" aria-label="Chats">
+                  <button type="button" className="thread-new-btn" onClick={() => setNewChatOpen(true)}>+ Private / group</button>
+                  {threads.map((thread) => {
+                    const label = threadLabel(thread);
+                    return (
+                      <button key={thread.id} type="button" className={`thread-button ${thread.id === activeThreadId ? 'active' : ''}`} onClick={() => setActiveThreadId(thread.id)}>
+                        <span className="thread-avatar-stack">
+                          {thread.is_general ? <span className="thread-general-icon">Θ</span> : threadMembers(thread).slice(0, 3).map((member) => <UserAvatar key={member.id} profile={member} className="thread-mini-avatar" />)}
+                        </span>
+                        <span className="thread-copy"><strong>{label}</strong><small>{threadSubtitle(thread)}</small></span>
+                      </button>
+                    );
+                  })}
+                </aside>
 
-              {!canDecrypt && <div className="warning-box">Enter the shared room key to read and send messages.</div>}
-
-              <div className="chat-window popup-chat-window" aria-live="polite">
-                {plainMessages.length === 0 && <div className="empty-text padded">No readable messages yet.</div>}
-                {plainMessages.map((message) => {
-                  const canDelete = message.sender_id === profile.id || isStaff(profile.role);
-                  const messageProfile = message.sender_id === profile.id ? profile : message.profiles;
-                  const color = userColor(messageProfile);
-                  return (
-                    <div className={`chat-line ${message.sender_id === profile.id ? 'mine' : ''} ${message.failed ? 'failed' : ''}`} key={message.id} style={{ '--member-color': color }}>
-                      <div className="chat-line-head">
-                        <div className="chat-author">
-                          <UserAvatar profile={messageProfile} color={color} className="chat-avatar" />
-                          <strong style={{ color }}>{displayUser(messageProfile)}</strong>
-                        </div>
-                        {canDelete && <button className="chat-delete-btn" type="button" aria-label="Delete message" onClick={() => deleteMessage(message.id)}>×</button>}
-                      </div>
-                      <span>{message.plain}</span>
-                      <small>{formatTime(message.created_at)}</small>
+                <section className="thread-panel">
+                  <div className="active-thread-head">
+                    <div>
+                      <strong>{threadLabel(activeThread)}</strong>
+                      <small>{activeThread?.is_general ? 'General chat for every member' : 'Private room'}</small>
                     </div>
-                  );
-                })}
-                <div ref={bottomRef} />
+                    {!activeThread?.is_general && <span className="dm-pill">Private</span>}
+                  </div>
+
+                  <div className="chat-window popup-chat-window" aria-live="polite">
+                    {messages.length === 0 && <div className="empty-text padded">No messages yet. Start the conversation.</div>}
+                    {messages.map((message) => {
+                      const canDelete = message.sender_id === profile.id || isStaff(profile.role);
+                      const messageProfile = message.sender_id === profile.id ? profile : message.profiles;
+                      const color = userColor(messageProfile);
+                      return (
+                        <div className={`chat-line ${message.sender_id === profile.id ? 'mine' : ''}`} key={message.id} style={{ '--member-color': color }}>
+                          <div className="chat-line-head">
+                            <div className="chat-author">
+                              <UserAvatar profile={messageProfile} color={color} className="chat-avatar" />
+                              <strong style={{ color }}>{displayUser(messageProfile)}</strong>
+                            </div>
+                            {canDelete && <button className="chat-delete-btn" type="button" aria-label="Delete message" onClick={() => deleteMessage(message.id)}>×</button>}
+                          </div>
+                          <span>{message.body}</span>
+                          <small>{formatTime(message.created_at)}</small>
+                        </div>
+                      );
+                    })}
+                    <div ref={bottomRef} />
+                  </div>
+
+                  <TypingIndicator typers={activeTypers} />
+
+                  <form className="chat-form popup-chat-form" onSubmit={send}>
+                    <input
+                      value={draft}
+                      onChange={(event) => updateDraft(event.target.value)}
+                      onBlur={() => sendTyping(false)}
+                      placeholder={activeThreadId ? 'Write message…' : 'Create or select a chat first'}
+                      disabled={!activeThreadId}
+                      maxLength={2000}
+                    />
+                    <button className="primary-btn send-message-btn" disabled={!activeThreadId || busy || !draft.trim()}>{busy ? '…' : 'Send'}</button>
+                  </form>
+                </section>
               </div>
-
-              <TypingIndicator typers={activeTypers} />
-
-              <form className="chat-form popup-chat-form" onSubmit={send}>
-                <input
-                  value={draft}
-                  onChange={(event) => updateDraft(event.target.value)}
-                  onBlur={() => sendTyping(false)}
-                  placeholder={canDecrypt ? 'Write message…' : 'Enter room key first'}
-                  disabled={!canDecrypt}
-                  maxLength={2000}
-                />
-                <button className="primary-btn send-message-btn" disabled={!canDecrypt || busy}>{busy ? '…' : 'Send'}</button>
-              </form>
             </div>
           ) : (
             <div className="chat-tab-panel voice-panel">
@@ -1624,6 +1786,9 @@ function VoiceRoom({ profile, compact = false }) {
   const [cleanWavUrl, setCleanWavUrl] = useState('');
   const [cleanWavName, setCleanWavName] = useState('');
   const [recordingError, setRecordingError] = useState('');
+  const [audioDevices, setAudioDevices] = useState([]);
+  const [selectedMicId, setSelectedMicId] = useState(localStorage.getItem('preferred-mic-id') || '');
+  const [micStatus, setMicStatus] = useState('');
 
   const channelRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -1657,6 +1822,47 @@ function VoiceRoom({ profile, compact = false }) {
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [joined]);
+
+  const loadAudioDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      setMicStatus('This browser cannot list microphones.');
+      return;
+    }
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((device) => device.kind === 'audioinput');
+      setAudioDevices(inputs);
+      if (inputs.length === 0) setMicStatus('No microphone inputs found yet. Connect your headset and press Refresh mics.');
+      else setMicStatus(`${inputs.length} microphone input${inputs.length === 1 ? '' : 's'} available.`);
+    } catch (err) {
+      setMicStatus(friendlyMicError(err));
+    }
+  }, []);
+
+  const refreshMicrophones = useCallback(async () => {
+    setMicStatus('Checking microphone permission…');
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const testStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        testStream.getTracks().forEach((track) => track.stop());
+      }
+      await loadAudioDevices();
+    } catch (err) {
+      setMicStatus(friendlyMicError(err));
+      await loadAudioDevices();
+    }
+  }, [loadAudioDevices]);
+
+  useEffect(() => {
+    loadAudioDevices();
+    if (!navigator.mediaDevices?.addEventListener) return undefined;
+    navigator.mediaDevices.addEventListener('devicechange', loadAudioDevices);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', loadAudioDevices);
+  }, [loadAudioDevices]);
+
+  useEffect(() => {
+    localStorage.setItem('preferred-mic-id', selectedMicId || '');
+  }, [selectedMicId]);
 
   const shouldInitiate = useCallback((peerId) => {
     if (!peerId || peerId === profile.id) return false;
@@ -1936,7 +2142,7 @@ function VoiceRoom({ profile, compact = false }) {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: MIC_CONSTRAINTS,
+        audio: micConstraintsForDevice(selectedMicId),
         video: false,
       });
       localStreamRef.current = stream;
@@ -1958,9 +2164,9 @@ function VoiceRoom({ profile, compact = false }) {
       });
       await renegotiateAll();
     } catch (err) {
-      setVoiceError(err.message || 'Microphone permission was denied.');
+      setVoiceError(friendlyMicError(err));
     }
-  }, [profile, renegotiateAll, sendBroadcast, trackVoiceState]);
+  }, [profile, renegotiateAll, selectedMicId, sendBroadcast, trackVoiceState]);
 
   const disableMic = useCallback(async (forcedMuted = true) => {
     const stream = localStreamRef.current;
@@ -2073,7 +2279,7 @@ function VoiceRoom({ profile, compact = false }) {
 
       if (wantsMic) {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: MIC_CONSTRAINTS,
+          audio: micConstraintsForDevice(selectedMicId),
           video: false,
         });
         localStreamRef.current = stream;
@@ -2163,7 +2369,7 @@ function VoiceRoom({ profile, compact = false }) {
       setLocalMicActive(false);
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
-      setVoiceError(err.message || 'Could not join the voice room.');
+      setVoiceError(friendlyMicError(err));
     }
   }
 
@@ -2302,6 +2508,22 @@ function VoiceRoom({ profile, compact = false }) {
 
       {voiceError && <div className="error-box">{voiceError}</div>}
       {recordingError && <div className="error-box">{recordingError}</div>}
+
+      <div className="mic-picker-card">
+        <label>
+          Microphone input
+          <select value={selectedMicId} onChange={(event) => setSelectedMicId(event.target.value)} disabled={joined && localMicActive}>
+            <option value="">System default microphone</option>
+            {audioDevices.map((device, index) => (
+              <option key={device.deviceId || `mic-${index}`} value={device.deviceId}>
+                {device.label || `Microphone ${index + 1}`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="ghost-btn compact" type="button" onClick={refreshMicrophones}>Refresh mics</button>
+        {micStatus && <small>{micStatus}</small>}
+      </div>
 
       {!joined ? (
         <div className="join-mode-grid">

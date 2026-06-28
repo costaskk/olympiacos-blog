@@ -1,6 +1,6 @@
 # Thrylos Agora
 
-Modern red-white private fan blog with invite-only registration, handle/password login, member posts, images, news links, YouTube embeds, comments, live group chat, typing indicators, user colour customization, a voice room inside the group chat popup, and admin-controlled site branding.
+Modern red-white private fan blog with invite-only registration, handle/password login, member posts, images, news links, YouTube embeds, comments, live general chat, private/group chat rooms, typing indicators, user colour customization, a voice room inside the chat popup, and admin-controlled site branding.
 
 This project includes original red-white fallback artwork. Official club logos/photos are not bundled. Add only assets you are allowed to use.
 
@@ -17,7 +17,7 @@ This project includes original red-white fallback artwork. Official club logos/p
 - Fixed the lower-right chat popup alignment so the message input and Send button stay inside the panel.
 - Improved the voice tab so members, mute state, joins/leaves and peer connections update live through Supabase Realtime presence/broadcast.
 - Added a cleaner modern feed with highlight cards and stronger red-white styling.
-- Group chat is now a lower-right popup with two sub-tabs:
+- Chat is now a lower-right popup with two sub-tabs:
   - **Messages**
   - **Voice chat**
 - Live messages update automatically without refresh.
@@ -211,11 +211,11 @@ Each user can open **Your anonymous profile** and change:
 - Chat colour
 - Bio
 
-The group chat uses each user's colour for their bubble/avatar so users are visually distinct.
+The chat uses each user's colour for their bubble/avatar so users are visually distinct.
 
 ## Voice room
 
-Open the lower-right **Group chat** popup, then choose:
+Open the lower-right **Chat** popup, then choose:
 
 ```txt
 Voice chat
@@ -310,4 +310,18 @@ powershell -ExecutionPolicy Bypass -File .\tools\fix-recording.ps1 "C:\Path\to\t
 
 ## v5.5 UI polish update
 
-This version adds custom confirmation modals for deleting posts, comments and group-chat messages, plus a full visual pass for dropdowns, file/image upload controls and action buttons. The delete flow no longer uses the browser default confirm box for moderation actions.
+This version adds custom confirmation modals for deleting posts, comments and chat messages, plus a full visual pass for dropdowns, file/image upload controls and action buttons. The delete flow no longer uses the browser default confirm box for moderation actions.
+
+## v5.6 chat rooms and microphone update
+
+This version removes the shared room passphrase flow and replaces it with:
+
+- **General chat** for every registered member.
+- **Private messages** by selecting one member.
+- **Group chats** by selecting multiple members and optionally adding a room title.
+- Live message loading through Supabase Realtime.
+- Live typing indicators per selected chat room.
+- A microphone input selector in the voice tab.
+- A **Refresh mics** button that asks the browser for mic permission and reloads Bluetooth/headset inputs.
+
+Run the full `supabase/schema.sql` again after deploying v5.6 because it adds `chat_threads`, `chat_thread_members`, `chat_messages`, and the `create_chat_thread` RPC.

@@ -63,12 +63,12 @@ values
   ('tagline', 'Anonymous. Invite-only. Red-white agora.'),
   ('header_tagline', 'Independent red-white community'),
   ('gate_heading', 'A modern private red-white blog for members only.'),
-  ('gate_intro', 'Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join the live group chat and voice room without giving an email.'),
+  ('gate_intro', 'Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join the live general chat, private/group rooms, and voice room without giving an email.'),
   ('feed_eyebrow', 'ΘΡΥΛΟΣ AGORA · PRIVATE BOARD'),
   ('feed_heading', 'Red-white matchday pulse, news and member posts.'),
   ('feed_intro', 'A modern members-only space for clean posts, images, YouTube clips, transfer talk, match reactions and private community chat.'),
   ('community_title', 'Clean red-white community'),
-  ('community_text', 'Use the feed for member posts and the floating group chat for live community talk.'),
+  ('community_text', 'Use the feed for member posts and the floating chat for general talk, private messages and group rooms.'),
   ('footer_text', 'Independent red-white fan project. Add only brand assets you are allowed to use in public/brand/ or from the admin settings page.'),
   ('logo_url', ''),
   ('hero_url', '')
@@ -137,6 +137,44 @@ create table if not exists public.encrypted_messages (
   created_at timestamptz not null default now()
 );
 
+
+create table if not exists public.chat_threads (
+  id uuid primary key default extensions.gen_random_uuid(),
+  title text,
+  is_general boolean not null default false,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint chat_threads_title_len check (title is null or char_length(title) <= 80)
+);
+
+create unique index if not exists chat_threads_one_general on public.chat_threads (is_general) where is_general;
+create index if not exists idx_chat_threads_updated_at on public.chat_threads (updated_at desc);
+
+create table if not exists public.chat_thread_members (
+  thread_id uuid not null references public.chat_threads(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (thread_id, user_id)
+);
+
+create index if not exists idx_chat_thread_members_user on public.chat_thread_members (user_id, thread_id);
+
+create table if not exists public.chat_messages (
+  id uuid primary key default extensions.gen_random_uuid(),
+  thread_id uuid not null references public.chat_threads(id) on delete cascade,
+  sender_id uuid not null references public.profiles(id) on delete cascade,
+  body text not null,
+  created_at timestamptz not null default now(),
+  constraint chat_messages_body_len check (char_length(body) between 1 and 2000)
+);
+
+create index if not exists idx_chat_messages_thread_created on public.chat_messages (thread_id, created_at asc);
+
+insert into public.chat_threads (title, is_general, created_by)
+values ('General chat', true, null)
+on conflict do nothing;
+
 create index if not exists idx_posts_created_at on public.posts (created_at desc);
 create index if not exists idx_comments_post_id_created_at on public.comments (post_id, created_at asc);
 create index if not exists idx_messages_created_at on public.encrypted_messages (created_at desc);
@@ -156,6 +194,29 @@ drop trigger if exists posts_touch_updated_at on public.posts;
 create trigger posts_touch_updated_at
 before update on public.posts
 for each row execute function public.touch_updated_at();
+
+
+drop trigger if exists chat_threads_touch_updated_at on public.chat_threads;
+create trigger chat_threads_touch_updated_at
+before update on public.chat_threads
+for each row execute function public.touch_updated_at();
+
+create or replace function public.bump_chat_thread_updated_at()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  update public.chat_threads set updated_at = now() where id = new.thread_id;
+  return new;
+end;
+$$;
+
+drop trigger if exists chat_messages_bump_thread on public.chat_messages;
+create trigger chat_messages_bump_thread
+after insert on public.chat_messages
+for each row execute function public.bump_chat_thread_updated_at();
 
 create or replace function public.is_staff(check_user uuid default auth.uid())
 returns boolean
@@ -192,6 +253,73 @@ security definer
 set search_path = public, extensions
 as $$
   select public.is_staff(check_user);
+$$;
+
+
+create or replace function public.is_chat_thread_member(check_thread uuid, check_user uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, extensions
+as $$
+  select exists (
+    select 1 from public.chat_threads
+    where id = check_thread and is_general = true
+  ) or exists (
+    select 1 from public.chat_thread_members
+    where thread_id = check_thread and user_id = check_user
+  );
+$$;
+
+create or replace function public.create_chat_thread(thread_title text default null, member_ids uuid[] default array[]::uuid[])
+returns uuid
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_thread_id uuid;
+  v_title text;
+  v_member uuid;
+  v_count integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  select count(*) into v_count
+  from (select distinct unnest(coalesce(member_ids, array[]::uuid[])) as member_id) picked
+  join public.profiles p on p.id = picked.member_id
+  where picked.member_id <> auth.uid();
+
+  if v_count < 1 then
+    raise exception 'Select at least one member';
+  end if;
+
+  v_title := nullif(trim(coalesce(thread_title, '')), '');
+
+  insert into public.chat_threads (title, is_general, created_by)
+  values (v_title, false, auth.uid())
+  returning id into v_thread_id;
+
+  insert into public.chat_thread_members (thread_id, user_id)
+  values (v_thread_id, auth.uid())
+  on conflict do nothing;
+
+  for v_member in
+    select distinct picked.member_id
+    from (select unnest(coalesce(member_ids, array[]::uuid[])) as member_id) picked
+    join public.profiles p on p.id = picked.member_id
+    where picked.member_id <> auth.uid()
+  loop
+    insert into public.chat_thread_members (thread_id, user_id)
+    values (v_thread_id, v_member)
+    on conflict do nothing;
+  end loop;
+
+  return v_thread_id;
+end;
 $$;
 
 create or replace function public.create_invite(days_valid integer default 30)
@@ -368,9 +496,11 @@ revoke all on function public.make_founder_invite() from public, anon, authentic
 revoke all on function public.create_invite(integer) from public, anon;
 revoke all on function public.accept_invite(text, text, text) from public, anon;
 revoke all on function public.admin_set_user_role(uuid, text) from public, anon;
+revoke all on function public.create_chat_thread(text, uuid[]) from public, anon;
 grant execute on function public.create_invite(integer) to authenticated;
 grant execute on function public.accept_invite(text, text, text) to authenticated;
 grant execute on function public.admin_set_user_role(uuid, text) to authenticated;
+grant execute on function public.create_chat_thread(text, uuid[]) to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.invites enable row level security;
@@ -379,6 +509,9 @@ alter table public.posts enable row level security;
 alter table public.comments enable row level security;
 alter table public.post_likes enable row level security;
 alter table public.encrypted_messages enable row level security;
+alter table public.chat_threads enable row level security;
+alter table public.chat_thread_members enable row level security;
+alter table public.chat_messages enable row level security;
 
 drop policy if exists profiles_select_authenticated on public.profiles;
 create policy profiles_select_authenticated on public.profiles
@@ -490,6 +623,54 @@ create policy messages_delete_self_or_admin on public.encrypted_messages
 for delete to authenticated
 using (sender_id = auth.uid() or public.is_staff());
 
+-- Modern chat threads: general chat is visible to all authenticated members;
+-- private/group chats are visible only to selected members.
+drop policy if exists chat_threads_select_allowed on public.chat_threads;
+create policy chat_threads_select_allowed on public.chat_threads
+for select to authenticated
+using (is_general = true or public.is_chat_thread_member(id));
+
+drop policy if exists chat_threads_insert_self on public.chat_threads;
+create policy chat_threads_insert_self on public.chat_threads
+for insert to authenticated
+with check (created_by = auth.uid() and is_general = false);
+
+drop policy if exists chat_threads_update_members_or_staff on public.chat_threads;
+create policy chat_threads_update_members_or_staff on public.chat_threads
+for update to authenticated
+using (public.is_chat_thread_member(id) or public.is_staff())
+with check (public.is_chat_thread_member(id) or public.is_staff());
+
+drop policy if exists chat_thread_members_select_allowed on public.chat_thread_members;
+create policy chat_thread_members_select_allowed on public.chat_thread_members
+for select to authenticated
+using (public.is_chat_thread_member(thread_id));
+
+drop policy if exists chat_thread_members_insert_thread_creator on public.chat_thread_members;
+create policy chat_thread_members_insert_thread_creator on public.chat_thread_members
+for insert to authenticated
+with check (exists (select 1 from public.chat_threads t where t.id = thread_id and t.created_by = auth.uid()));
+
+drop policy if exists chat_messages_select_allowed on public.chat_messages;
+create policy chat_messages_select_allowed on public.chat_messages
+for select to authenticated
+using (public.is_chat_thread_member(thread_id));
+
+drop policy if exists chat_messages_insert_allowed on public.chat_messages;
+create policy chat_messages_insert_allowed on public.chat_messages
+for insert to authenticated
+with check (sender_id = auth.uid() and public.is_chat_thread_member(thread_id));
+
+drop policy if exists chat_messages_delete_self_or_staff on public.chat_messages;
+create policy chat_messages_delete_self_or_staff on public.chat_messages
+for delete to authenticated
+using (sender_id = auth.uid() or public.is_staff());
+
+
+grant select on public.chat_threads to authenticated;
+grant select on public.chat_thread_members to authenticated;
+grant select, insert, delete on public.chat_messages to authenticated;
+
 
 
 -- Realtime support for live feed, comments and the floating group messenger.
@@ -513,6 +694,21 @@ begin
 
   begin
     alter publication supabase_realtime add table public.encrypted_messages;
+  exception when duplicate_object or undefined_object then null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.chat_threads;
+  exception when duplicate_object or undefined_object then null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.chat_thread_members;
+  exception when duplicate_object or undefined_object then null;
+  end;
+
+  begin
+    alter publication supabase_realtime add table public.chat_messages;
   exception when duplicate_object or undefined_object then null;
   end;
 end $$;
