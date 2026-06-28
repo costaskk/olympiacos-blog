@@ -65,12 +65,12 @@ const CHAT_COLORS = ['#e31b2f', '#ffffff', '#ffb703', '#2dd4bf', '#60a5fa', '#c0
 const AUTH_EMAIL_DOMAIN = 'members.port24.invalid';
 const ARTICLE_CATEGORIES = [
   { id: 'all', label: 'Όλα' },
-  { id: 'basketball', label: 'Μπασκετ' },
-  { id: 'football', label: 'Ποδοσφαιρο' },
-  { id: 'erasitexnhs', label: 'Ερασιτεχνης' },
-  { id: 'volleyball', label: 'Βολει' },
-  { id: 'transfers', label: 'Μεταγραφες' },
-  { id: 'opinion', label: 'Αποψεις' },
+  { id: 'basketball', label: 'Μπάσκετ' },
+  { id: 'football', label: 'Ποδόσφαιρο' },
+  { id: 'erasitexnhs', label: 'Ερασιτέχνης' },
+  { id: 'volleyball', label: 'Βόλεϋ' },
+  { id: 'transfers', label: 'Μεταγραφές' },
+  { id: 'opinion', label: 'Απόψεις' },
   { id: 'media', label: 'Media' },
 ];
 function formatTime(value) {
@@ -345,7 +345,6 @@ function stripGreekTonos(value = '') {
   return String(value)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ς/g, 'σ')
     .normalize('NFC');
 }
 
@@ -354,7 +353,11 @@ function appCaps(value = '') {
 }
 
 function categoryLabel(category) {
-  return stripGreekTonos(ARTICLE_CATEGORIES.find((item) => item.id === category)?.label || 'Γενικα');
+  return ARTICLE_CATEGORIES.find((item) => item.id === category)?.label || 'Γενικά';
+}
+
+function categoryCaps(category) {
+  return appCaps(categoryLabel(category));
 }
 
 function BrandMark({ large = false, settings = DEFAULT_SITE_SETTINGS }) {
@@ -945,12 +948,12 @@ function PostCard({ post, profile, onChanged }) {
           </div>
         </div>
         <div className="post-actions">
-          <span className={`kind-pill ${post.category || post.kind}`}>{categoryLabel(post.category)}</span>
+          <span className={`kind-pill ${post.category || post.kind}`}>{categoryCaps(post.category)}</span>
           {canDelete && <button className="danger-mini-btn" type="button" onClick={deletePost}>Delete</button>}
         </div>
       </header>
 
-      {post.category && <span className="article-category-pill">{categoryLabel(post.category)}</span>}
+      {post.category && <span className="article-category-pill">{categoryCaps(post.category)}</span>}
       {post.title && <h2 className="article-title">{post.title}</h2>}
       {post.excerpt && <p className="article-excerpt">{post.excerpt}</p>}
       <p className="post-content">{post.content}</p>
@@ -1062,6 +1065,11 @@ function sectionLabel(kind = 'article', category = '') {
   return 'Article';
 }
 
+function sectionCaps(kind = 'article', category = '') {
+  if (category) return categoryCaps(category);
+  return appCaps(sectionLabel(kind, category));
+}
+
 function EditorialBoard({ posts, profile, settings = DEFAULT_SITE_SETTINGS, onFilter }) {
   const redNotes = posts.slice(0, 12);
   const latest = posts.slice(0, 6);
@@ -1096,7 +1104,7 @@ function EditorialBoard({ posts, profile, settings = DEFAULT_SITE_SETTINGS, onFi
         <div className="lead-story">
           {latest[0] ? (
             <>
-              <span className={`kind-pill ${latest[0].kind}`}>{sectionLabel(latest[0].kind, latest[0].category)}</span>
+              <span className={`kind-pill ${latest[0].kind}`}>{sectionCaps(latest[0].kind, latest[0].category)}</span>
               <h2>{editorialTitle(latest[0].content)}</h2>
               <p>{String(latest[0].content || '').slice(0, 220)}{String(latest[0].content || '').length > 220 ? '…' : ''}</p>
               <small>{displayUser(latest[0].profiles)} · {formatTime(latest[0].created_at)}</small>
@@ -1243,7 +1251,7 @@ function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
         <strong>{filter === 'all' ? 'Latest feed' : `Latest ${filter}`}</strong>
         <div className="filter-tabs">
           {['all', ...ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => item.id)].map((item) => (
-            <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item === 'all' ? 'All' : categoryLabel(item)}</button>
+            <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item === 'all' ? 'Όλα' : categoryLabel(item)}</button>
           ))}
         </div>
       </div>
@@ -1262,7 +1270,7 @@ function PublicArticleCard({ post, onOpen }) {
     <article className="public-article-card glass-card" onClick={() => onOpen?.(post)} role="button" tabIndex={0}>
       {imageUrl && <img src={imageUrl} alt="Article cover" loading="lazy" />}
       <div className="public-article-body">
-        <span className="kind-pill">{categoryLabel(post.category)}</span>
+        <span className="kind-pill">{categoryCaps(post.category)}</span>
         <h2>{post.title || editorialTitle(post.content)}</h2>
         <p>{post.excerpt || String(post.content || '').slice(0, 210)}</p>
         <small>Γράφει: {displayUser(author)} · {formatTime(post.created_at)}</small>
@@ -1339,7 +1347,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
       <nav className="public-category-bar port24-category-bar glass-card" aria-label="Article categories">
         {['all', ...ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => item.id)].map((item) => (
           <button key={item} className={category === item ? 'active' : ''} type="button" onClick={() => setCategory(item)}>
-            <span>{item === 'all' ? 'Ολα' : categoryLabel(item)}</span>
+            <span>{item === 'all' ? 'Όλα' : categoryLabel(item)}</span>
           </button>
         ))}
       </nav>
@@ -1347,7 +1355,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
       {current && (
         <section className="article-carousel glass-card">
           <button className="carousel-image" type="button" onClick={() => openArticle(current)} style={{ '--carousel-image': `url(${currentImage})` }} aria-label="Open featured article">
-            <span className="article-category-pill">{categoryLabel(current.category)}</span>
+            <span className="article-category-pill">{categoryCaps(current.category)}</span>
           </button>
           <div className="carousel-copy">
             <span className="eyebrow">ΝΕΟ ΑΡΘΡΟ</span>
@@ -1475,7 +1483,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId }) {
             type="button"
             onClick={() => window.location.assign('/')}
           >
-            <span>{item === 'all' ? 'Ολα' : categoryLabel(item)}</span>
+            <span>{item === 'all' ? 'Όλα' : categoryLabel(item)}</span>
           </button>
         ))}
       </nav>
@@ -1495,7 +1503,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId }) {
         <article className="article-page-card glass-card">
           {article.image_path && <img className="article-page-cover" src={publicAssetUrl(BUCKET, article.image_path)} alt="Article cover" />}
           <div className="article-page-content">
-            <span className="kind-pill">{categoryLabel(article.category)}</span>
+            <span className="kind-pill">{categoryCaps(article.category)}</span>
             <h1>{article.title || editorialTitle(article.content)}</h1>
             <div className="article-byline article-page-byline">
               <UserAvatar profile={article.profiles} className="comment-avatar" />
@@ -3516,7 +3524,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
           <article className="public-lead-card glass-card" onClick={() => setSelected(lead)} role="button" tabIndex={0}>
             {lead.image_path && <img src={publicAssetUrl(BUCKET, lead.image_path)} alt="Article cover" />}
             <div>
-              <span className="article-category-pill">{categoryLabel(lead.category)}</span>
+              <span className="article-category-pill">{categoryCaps(lead.category)}</span>
               <h2>{lead.title || lead.content.slice(0, 90)}</h2>
               <p>{lead.excerpt || lead.content.slice(0, 220)}</p>
               <small>By {displayUser(lead.profiles)} · {formatTime(lead.created_at)}</small>
@@ -3538,7 +3546,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
         {rest.map((article) => (
           <article className="public-article-card glass-card" key={article.id} onClick={() => setSelected(article)} role="button" tabIndex={0}>
             {article.image_path && <img src={publicAssetUrl(BUCKET, article.image_path)} alt="Article cover" />}
-            <span className="article-category-pill">{categoryLabel(article.category)}</span>
+            <span className="article-category-pill">{categoryCaps(article.category)}</span>
             <h3>{article.title || article.content.slice(0, 80)}</h3>
             <p>{article.excerpt || article.content.slice(0, 160)}</p>
             <small>By {displayUser(article.profiles)} · {formatTime(article.created_at)}</small>
@@ -3551,7 +3559,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
           <article className="article-reader glass-card">
             <button className="ghost-btn compact article-close" type="button" onClick={() => setSelected(null)}>Close</button>
             {selected.image_path && <img className="article-reader-cover" src={publicAssetUrl(BUCKET, selected.image_path)} alt="Article cover" />}
-            <span className="article-category-pill">{categoryLabel(selected.category)}</span>
+            <span className="article-category-pill">{categoryCaps(selected.category)}</span>
             <h1>{selected.title || 'Port24 article'}</h1>
             <div className="article-byline">
               <UserAvatar profile={selected.profiles} className="comment-avatar" />
