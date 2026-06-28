@@ -957,6 +957,11 @@ function TypingIndicator({ typers }) {
 
   return (
     <div className="typing-indicator" aria-live="polite">
+      <span className="typing-mini-stack" aria-hidden="true">
+        {people.slice(0, 4).map((person, index) => (
+          <i key={`${person.name || 'member'}-${index}`} style={{ '--member-color': person.color || '#e31b2f' }} />
+        ))}
+      </span>
       <span className="typing-dots"><i /><i /><i /></span>
       <span>{label}</span>
     </div>
@@ -1313,6 +1318,8 @@ function ChatPanel({ profile }) {
   const chatChannelRef = useRef(null);
   const typingTimersRef = useRef(new Map());
   const lastTypingSentRef = useRef(0);
+  const typingStopTimerRef = useRef(null);
+  const previousThreadIdRef = useRef('');
   const isOpenRef = useRef(isOpen);
   const activeThreadIdRef = useRef(activeThreadId);
 
@@ -1396,16 +1403,18 @@ function ChatPanel({ profile }) {
     if (!error) setMessages(data || []);
   }, []);
 
-  const sendTyping = useCallback(async (isTyping) => {
-    if (!chatChannelRef.current || !activeThreadIdRef.current) return;
+  const sendTyping = useCallback(async (isTyping, threadIdOverride = '') => {
+    const threadId = threadIdOverride || activeThreadIdRef.current;
+    if (!chatChannelRef.current || !threadId) return;
     await chatChannelRef.current.send({
       type: 'broadcast',
       event: 'typing',
       payload: {
-        thread_id: activeThreadIdRef.current,
+        thread_id: threadId,
         user_id: profile.id,
         name: displayUser(profile),
         color: userColor(profile),
+        avatar_url: profile.avatar_url || '',
         is_typing: isTyping,
         at: Date.now(),
       },
@@ -1421,6 +1430,18 @@ function ChatPanel({ profile }) {
     const timer = typingTimersRef.current.get(userId);
     if (timer) window.clearTimeout(timer);
     typingTimersRef.current.delete(userId);
+  }, []);
+
+  const clearTypingStopTimer = useCallback(() => {
+    if (typingStopTimerRef.current) {
+      window.clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+  }, []);
+
+  const removeMessageLocally = useCallback((messageId) => {
+    if (!messageId) return;
+    setMessages((current) => current.filter((message) => message.id !== messageId));
   }, []);
 
   useEffect(() => {
@@ -1441,18 +1462,35 @@ function ChatPanel({ profile }) {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, (payload) => {
         const threadId = payload.new?.thread_id || payload.old?.thread_id;
+        const messageId = payload.old?.id || payload.new?.id;
+        if (payload.eventType === 'DELETE') {
+          removeMessageLocally(messageId);
+          if (threadId === activeThreadIdRef.current) {
+            loadMessages();
+          }
+          loadThreads();
+          return;
+        }
         if (threadId === activeThreadIdRef.current) loadMessages();
         loadThreads();
         if (payload.eventType === 'INSERT' && payload.new?.sender_id !== profile.id) {
+          clearTyper(payload.new.sender_id);
           if (!isOpenRef.current || threadId !== activeThreadIdRef.current) setUnreadCount((count) => count + 1);
         }
       })
       .on('broadcast', { event: 'message-created' }, ({ payload }) => {
+        if (payload?.sender_id) clearTyper(payload.sender_id);
         if (payload?.thread_id === activeThreadIdRef.current) loadMessages();
         loadThreads();
         if (payload?.sender_id !== profile.id && (!isOpenRef.current || payload?.thread_id !== activeThreadIdRef.current)) {
           setUnreadCount((count) => count + 1);
         }
+      })
+      .on('broadcast', { event: 'message-deleted' }, ({ payload }) => {
+        if (!payload?.id) return;
+        removeMessageLocally(payload.id);
+        if (payload.thread_id === activeThreadIdRef.current) loadMessages();
+        loadThreads();
       })
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
         if (!payload || payload.user_id === profile.id || payload.thread_id !== activeThreadIdRef.current) return;
@@ -1473,15 +1511,20 @@ function ChatPanel({ profile }) {
     return () => {
       typingTimersRef.current.forEach((timer) => window.clearTimeout(timer));
       typingTimersRef.current.clear();
+      clearTypingStopTimer();
       supabase.removeChannel(channel);
       chatChannelRef.current = null;
     };
-  }, [clearTyper, loadMembers, loadMessages, loadThreads, profile.id]);
+  }, [clearTyper, clearTypingStopTimer, loadMembers, loadMessages, loadThreads, profile.id, removeMessageLocally]);
 
   useEffect(() => {
+    const previousThreadId = previousThreadIdRef.current;
+    if (previousThreadId && previousThreadId !== activeThreadId) sendTyping(false, previousThreadId);
+    previousThreadIdRef.current = activeThreadId;
+    clearTypingStopTimer();
     setActiveTypers({});
     loadMessages();
-  }, [activeThreadId, loadMessages]);
+  }, [activeThreadId, clearTypingStopTimer, loadMessages, sendTyping]);
 
   useEffect(() => {
     if (isOpen && activeTab === 'messages') bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1500,6 +1543,7 @@ function ChatPanel({ profile }) {
       if (error) throw error;
 
       setDraft('');
+      clearTypingStopTimer();
       await sendTyping(false);
       await chatChannelRef.current?.send({
         type: 'broadcast',
@@ -1522,23 +1566,42 @@ function ChatPanel({ profile }) {
   async function confirmDeleteMessage() {
     if (!deleteTarget?.messageId) return;
     const messageId = deleteTarget.messageId;
+    const deletedMessage = messages.find((message) => message.id === messageId);
+    const deletedThreadId = deletedMessage?.thread_id || activeThreadIdRef.current;
     setDeleteTarget(null);
+    removeMessageLocally(messageId);
     const { error } = await supabase.from('chat_messages').delete().eq('id', messageId);
-    if (error) alert(error.message);
-    loadMessages();
+    if (error) {
+      alert(error.message);
+      await loadMessages();
+      return;
+    }
+    await chatChannelRef.current?.send({
+      type: 'broadcast',
+      event: 'message-deleted',
+      payload: { id: messageId, thread_id: deletedThreadId, deleted_by: profile.id, at: Date.now() },
+    }).catch(() => null);
+    await loadThreads();
   }
 
   function updateDraft(value) {
     setDraft(value);
+    clearTypingStopTimer();
     if (!value.trim()) {
       sendTyping(false);
+      lastTypingSentRef.current = 0;
       return;
     }
     const now = Date.now();
-    if (now - lastTypingSentRef.current > 1200) {
+    if (now - lastTypingSentRef.current > 900) {
       lastTypingSentRef.current = now;
       sendTyping(true);
     }
+    typingStopTimerRef.current = window.setTimeout(() => {
+      lastTypingSentRef.current = 0;
+      sendTyping(false);
+      typingStopTimerRef.current = null;
+    }, 2400);
   }
 
   function toggleSelectedMember(memberId) {
@@ -1699,7 +1762,7 @@ function ChatPanel({ profile }) {
                     <input
                       value={draft}
                       onChange={(event) => updateDraft(event.target.value)}
-                      onBlur={() => sendTyping(false)}
+                      onBlur={() => { clearTypingStopTimer(); sendTyping(false); }}
                       placeholder={activeThreadId ? 'Write message…' : 'Create or select a chat first'}
                       disabled={!activeThreadId}
                       maxLength={2000}
@@ -1808,6 +1871,7 @@ function VoiceRoom({ profile, compact = false }) {
   const recordingSourcesRef = useRef(new Map());
   const speakingRef = useRef(false);
   const lastSpeakingBroadcastRef = useRef(0);
+  const lastVoiceHeartbeatRef = useRef(0);
 
   useEffect(() => { mutedRef.current = muted; }, [muted]);
   useEffect(() => { localRoleRef.current = localRole; }, [localRole]);
@@ -1873,6 +1937,21 @@ function VoiceRoom({ profile, compact = false }) {
     if (!channelRef.current) return;
     await channelRef.current.send({ type: 'broadcast', event, payload }).catch(() => null);
   }, []);
+
+  const voiceStatePayload = useCallback((overrides = {}) => ({
+    from: profile.id,
+    name: displayUser(profile),
+    color: userColor(profile),
+    avatar_url: profile.avatar_url || '',
+    muted: mutedRef.current,
+    hasMic: Boolean(localStreamRef.current),
+    role: localRoleRef.current,
+    mic_allowed: micAllowedRef.current,
+    speaking: speakingRef.current,
+    joined_at: joinedAtRef.current,
+    at: Date.now(),
+    ...overrides,
+  }), [profile]);
 
   const trackVoiceState = useCallback(async (overrides = {}) => {
     if (!channelRef.current || !joinedAtRef.current) return;
@@ -1946,6 +2025,32 @@ function VoiceRoom({ profile, compact = false }) {
     trackVoiceState({ avatar_url: profile.avatar_url || '', name: displayUser(profile), color: userColor(profile) });
   }, [joined, profile.avatar_url, profile.display_name, profile.chat_color, trackVoiceState]);
 
+  useEffect(() => {
+    if (!joined) return undefined;
+    const heartbeat = async () => {
+      lastVoiceHeartbeatRef.current = Date.now();
+      const payload = voiceStatePayload();
+      await trackVoiceState({
+        name: payload.name,
+        color: payload.color,
+        avatar_url: payload.avatar_url,
+        muted: payload.muted,
+        role: payload.role,
+        mic_allowed: payload.mic_allowed,
+        has_mic: payload.hasMic,
+        speaking: payload.speaking,
+      });
+      await sendBroadcast('voice-heartbeat', payload);
+      if (profile.id === hostIdRef.current && Object.keys(roomRolesRef.current).length > 0) {
+        await sendBroadcast('voice-role-sync', { from: profile.id, roles: roomRolesRef.current, at: Date.now() });
+      }
+    };
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 8500);
+    return () => window.clearInterval(timer);
+  }, [joined, profile.id, sendBroadcast, trackVoiceState, voiceStatePayload]);
+
+
   const closePeer = useCallback((peerId) => {
     const pc = peersRef.current.get(peerId);
     if (pc) pc.close();
@@ -1997,6 +2102,22 @@ function VoiceRoom({ profile, compact = false }) {
     await Promise.allSettled(jobs);
   }, [remoteNames, renegotiatePeer, voiceMembers]);
 
+  useEffect(() => {
+    if (!joined) return undefined;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      trackVoiceState();
+      sendBroadcast('voice-heartbeat', voiceStatePayload());
+      renegotiateAll();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onVisible);
+    };
+  }, [joined, renegotiateAll, sendBroadcast, trackVoiceState, voiceStatePayload]);
+
   const getPeer = useCallback((peerId, peerName = 'Member') => {
     if (peersRef.current.has(peerId)) return peersRef.current.get(peerId);
 
@@ -2025,14 +2146,29 @@ function VoiceRoom({ profile, compact = false }) {
       setRemoteStreams((current) => ({ ...current, [peerId]: stream }));
     };
 
+    const scheduleReconnect = () => {
+      if (!activeRef.current || pc.signalingState === 'closed') return;
+      window.setTimeout(() => {
+        if (!activeRef.current || pc.signalingState === 'closed') return;
+        if (['disconnected', 'failed'].includes(pc.connectionState) || ['disconnected', 'failed'].includes(pc.iceConnectionState)) {
+          try { pc.restartIce?.(); } catch { /* ignored */ }
+          renegotiatePeer(peerId, peerName);
+        }
+      }, 1200);
+    };
+
     pc.onconnectionstatechange = () => {
-      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
-        closePeer(peerId);
-      }
+      if (pc.connectionState === 'closed') closePeer(peerId);
+      else if (['failed', 'disconnected'].includes(pc.connectionState)) scheduleReconnect();
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'closed') closePeer(peerId);
+      else if (['failed', 'disconnected'].includes(pc.iceConnectionState)) scheduleReconnect();
     };
 
     return pc;
-  }, [closePeer, profile, sendBroadcast]);
+  }, [closePeer, profile, renegotiatePeer, sendBroadcast]);
 
   const createOffer = useCallback(async (peerId, peerName) => {
     if (!activeRef.current || peerId === profile.id) return;
@@ -2094,6 +2230,10 @@ function VoiceRoom({ profile, compact = false }) {
       };
     });
 
+    Array.from(knownMembersRef.current).forEach((peerId) => {
+      if (peerId !== profile.id && !nextMembers[peerId]) closePeer(peerId);
+    });
+
     const sorted = Object.values(nextMembers).sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime());
     const nextHost = sorted[0]?.id || null;
     setHostId(nextHost);
@@ -2106,7 +2246,7 @@ function VoiceRoom({ profile, compact = false }) {
         window.setTimeout(() => createOffer(peerId, info.name), 250);
       }
     });
-  }, [createOffer, profile, shouldInitiate]);
+  }, [closePeer, createOffer, profile, shouldInitiate]);
 
   const setLocalMuted = useCallback(async (nextMuted) => {
     localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !nextMuted; });
@@ -2309,14 +2449,34 @@ function VoiceRoom({ profile, compact = false }) {
         })
         .on('broadcast', { event: 'voice-state' }, ({ payload }) => {
           if (!payload || payload.from === profile.id) return;
+          setRemoteNames((current) => ({ ...current, [payload.from]: payload.name || current[payload.from] || 'Member' }));
           setRemoteStates((current) => ({
             ...current,
             [payload.from]: {
+              ...(current[payload.from] || {}),
               muted: Boolean(payload.muted),
               hasMic: Boolean(payload.hasMic),
               speaking: Boolean(payload.speaking),
               avatar_url: payload.avatar_url || current[payload.from]?.avatar_url || '',
               role: payload.role || current[payload.from]?.role,
+              lastSeen: Date.now(),
+            },
+          }));
+        })
+        .on('broadcast', { event: 'voice-heartbeat' }, ({ payload }) => {
+          if (!payload || payload.from === profile.id) return;
+          setRemoteNames((current) => ({ ...current, [payload.from]: payload.name || current[payload.from] || 'Member' }));
+          setRemoteStates((current) => ({
+            ...current,
+            [payload.from]: {
+              ...(current[payload.from] || {}),
+              muted: Boolean(payload.muted),
+              hasMic: Boolean(payload.hasMic),
+              speaking: Boolean(payload.speaking),
+              avatar_url: payload.avatar_url || current[payload.from]?.avatar_url || '',
+              role: payload.role || current[payload.from]?.role,
+              color: payload.color || current[payload.from]?.color,
+              lastSeen: Date.now(),
             },
           }));
         })

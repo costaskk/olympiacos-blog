@@ -325,3 +325,12 @@ This version removes the shared room passphrase flow and replaces it with:
 - A **Refresh mics** button that asks the browser for mic permission and reloads Bluetooth/headset inputs.
 
 Run the full `supabase/schema.sql` again after deploying v5.6 because it adds `chat_threads`, `chat_thread_members`, `chat_messages`, and the `create_chat_thread` RPC.
+
+
+## v5.7 update
+
+- Chat deletion now updates live for everyone in the selected room.
+- Typing indicators are more reliable and clear automatically when a user stops, sends, switches rooms, or closes the popup.
+- Voice room presence now sends periodic keep-alive heartbeats, refreshes member state more often, and renegotiates peer audio if a browser temporarily disconnects.
+- Mobile and tablet layouts were tightened with a better feed, a safer bottom chat popup, horizontal room picker, and improved touch-sized voice controls.
+- Re-run `supabase/schema.sql` once so chat message DELETE events include the old message id/thread id in Realtime.

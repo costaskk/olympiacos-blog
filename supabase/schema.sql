@@ -671,7 +671,10 @@ grant select on public.chat_threads to authenticated;
 grant select on public.chat_thread_members to authenticated;
 grant select, insert, delete on public.chat_messages to authenticated;
 
-
+-- Make Realtime DELETE events include the old message id/thread id so every open chat removes deleted messages instantly.
+alter table public.chat_messages replica identity full;
+alter table public.comments replica identity full;
+alter table public.posts replica identity full;
 
 -- Realtime support for live feed, comments and the floating group messenger.
 -- Supabase Broadcast works without this, but Postgres changes need the tables in supabase_realtime.
