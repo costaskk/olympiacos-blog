@@ -65,12 +65,12 @@ const CHAT_COLORS = ['#e31b2f', '#ffffff', '#ffb703', '#2dd4bf', '#60a5fa', '#c0
 const AUTH_EMAIL_DOMAIN = 'members.port24.invalid';
 const ARTICLE_CATEGORIES = [
   { id: 'all', label: 'Όλα' },
-  { id: 'basketball', label: 'Μπάσκετ' },
-  { id: 'football', label: 'Ποδόσφαιρο' },
-  { id: 'erasitexnhs', label: 'Ερασιτέχνης' },
-  { id: 'volleyball', label: 'Βόλεϊ' },
-  { id: 'transfers', label: 'Μεταγραφές' },
-  { id: 'opinion', label: 'Απόψεις' },
+  { id: 'basketball', label: 'Μπασκετ' },
+  { id: 'football', label: 'Ποδοσφαιρο' },
+  { id: 'erasitexnhs', label: 'Ερασιτεχνης' },
+  { id: 'volleyball', label: 'Βολει' },
+  { id: 'transfers', label: 'Μεταγραφες' },
+  { id: 'opinion', label: 'Αποψεις' },
   { id: 'media', label: 'Media' },
 ];
 function formatTime(value) {
@@ -341,8 +341,20 @@ function canPublishArticles(role) {
   return role === 'admin' || role === 'moderator' || role === 'editor';
 }
 
+function stripGreekTonos(value = '') {
+  return String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ς/g, 'σ')
+    .normalize('NFC');
+}
+
+function appCaps(value = '') {
+  return stripGreekTonos(value).toLocaleUpperCase('el-GR');
+}
+
 function categoryLabel(category) {
-  return ARTICLE_CATEGORIES.find((item) => item.id === category)?.label || 'Γενικά';
+  return stripGreekTonos(ARTICLE_CATEGORIES.find((item) => item.id === category)?.label || 'Γενικα');
 }
 
 function BrandMark({ large = false, settings = DEFAULT_SITE_SETTINGS }) {
@@ -1327,7 +1339,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
       <nav className="public-category-bar port24-category-bar glass-card" aria-label="Article categories">
         {['all', ...ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => item.id)].map((item) => (
           <button key={item} className={category === item ? 'active' : ''} type="button" onClick={() => setCategory(item)}>
-            <span>{item === 'all' ? 'Όλα' : categoryLabel(item)}</span>
+            <span>{item === 'all' ? 'Ολα' : categoryLabel(item)}</span>
           </button>
         ))}
       </nav>
@@ -1463,7 +1475,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId }) {
             type="button"
             onClick={() => window.location.assign('/')}
           >
-            <span>{item === 'all' ? 'Όλα' : categoryLabel(item)}</span>
+            <span>{item === 'all' ? 'Ολα' : categoryLabel(item)}</span>
           </button>
         ))}
       </nav>
