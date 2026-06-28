@@ -126,8 +126,6 @@ create table if not exists public.posts (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint posts_title_len check (title is null or char_length(title) between 1 and 180),
-  constraint posts_excerpt_len check (excerpt is null or char_length(excerpt) <= 400),
-  constraint posts_title_len check (title is null or char_length(title) between 1 and 180),
   constraint posts_excerpt_len check (excerpt is null or char_length(excerpt) <= 420),
   constraint posts_content_len check (char_length(content) between 1 and 20000),
   constraint posts_source_url_len check (source_url is null or char_length(source_url) <= 600),
@@ -311,6 +309,76 @@ as $$
     where id = check_user and role = 'admin'
   );
 $$;
+
+
+create or replace function public.publish_article(
+  article_title text,
+  article_category text,
+  article_excerpt text,
+  article_content text,
+  article_image_path text default null,
+  article_video_url text default null,
+  article_source_url text default null
+)
+returns public.posts
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  cleaned_category text;
+  new_post public.posts%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  if not public.can_publish_articles(auth.uid()) then
+    raise exception 'This account does not have writer access';
+  end if;
+
+  if article_title is null or length(trim(article_title)) < 1 then
+    raise exception 'Article title is required';
+  end if;
+
+  if article_content is null or length(trim(article_content)) < 1 then
+    raise exception 'Article body is required';
+  end if;
+
+  cleaned_category := coalesce(nullif(trim(article_category), ''), 'opinion');
+  if cleaned_category not in ('basketball', 'football', 'erasitexnhs', 'volleyball', 'transfers', 'opinion', 'media') then
+    cleaned_category := 'opinion';
+  end if;
+
+  insert into public.posts (
+    author_id,
+    kind,
+    title,
+    category,
+    excerpt,
+    status,
+    content,
+    image_path,
+    video_url,
+    source_url
+  ) values (
+    auth.uid(),
+    'article',
+    trim(article_title),
+    cleaned_category,
+    nullif(trim(coalesce(article_excerpt, '')), ''),
+    'published',
+    trim(article_content),
+    nullif(trim(coalesce(article_image_path, '')), ''),
+    nullif(trim(coalesce(article_video_url, '')), ''),
+    nullif(trim(coalesce(article_source_url, '')), '')
+  ) returning * into new_post;
+
+  return new_post;
+end;
+$$;
+
+grant execute on function public.publish_article(text, text, text, text, text, text, text) to authenticated;
 
 -- Backwards-compatible name used by older policies.
 create or replace function public.can_publish_articles(check_user uuid default auth.uid())

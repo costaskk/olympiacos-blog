@@ -329,7 +329,7 @@ async function loadSiteSettings() {
 function roleBadge(role) {
   if (role === 'admin') return 'Founder';
   if (role === 'moderator') return 'Mod';
-  if (role === 'editor') return 'Editor';
+  if (role === 'editor') return 'Writer';
   return 'Member';
 }
 
@@ -391,6 +391,7 @@ function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS, session 
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [notice, setNotice] = useState('');
 
   async function readProfileForUser(userId) {
@@ -686,51 +687,69 @@ function Composer({ profile, onCreated }) {
   if (!allowed) {
     return (
       <section className="composer glass-card editor-locked-card">
-        <span className="eyebrow">EDITORIAL ACCESS</span>
-        <h2>Read-only member access</h2>
-        <p>Articles are published by registered editors. Ask an admin to change your role to Editor if you should be able to write for Port24.</p>
+        <span className="eyebrow">READING MODE</span>
+        <h2>Πρόσβαση ανάγνωσης</h2>
+        <p>Μπορείς να διαβάζεις και να συμμετέχεις στην κοινότητα. Η δημοσίευση άρθρων ενεργοποιείται από τη διαχείριση.</p>
       </section>
     );
   }
 
   async function submit(e) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError('');
+    setSuccess('');
 
     try {
+      if (!profile?.id) throw new Error('Your session is not ready. Refresh and log in again.');
+      if (!canPublishArticles(profile?.role)) throw new Error('This account does not have writer access. Ask an admin to promote it to Writer.');
       if (!title.trim()) throw new Error('Add an article title.');
       if (!content.trim()) throw new Error('Write the article body first.');
-      if (sourceUrl && !isSafeUrl(sourceUrl)) throw new Error('Source URL must start with http:// or https://');
-      if (videoUrl && !getYoutubeId(videoUrl)) throw new Error('Use a valid YouTube link.');
+      if (sourceUrl.trim() && !isSafeUrl(sourceUrl.trim())) throw new Error('Source URL must start with http:// or https://');
+      if (videoUrl.trim() && !getYoutubeId(videoUrl.trim())) throw new Error('Use a valid YouTube link.');
 
       let imagePath = null;
       if (image) {
         if (!image.type.startsWith('image/')) throw new Error('Only image uploads are allowed.');
         if (image.size > 10 * 1024 * 1024) throw new Error('Image must be under 10 MB.');
         const safeName = image.name.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
-        imagePath = `${profile.id}/${randomId()}-${safeName}`;
+        imagePath = `${profile.id}/${Date.now()}-${randomId()}-${safeName}`;
         const { error: uploadError } = await supabase.storage.from(BUCKET).upload(imagePath, image, {
           cacheControl: '3600',
-          upsert: false,
+          upsert: true,
+          contentType: image.type,
         });
-        if (uploadError) throw uploadError;
+        if (uploadError) throw new Error(`Image upload failed: ${uploadError.message}. Make sure the latest supabase/schema.sql has been run.`);
       }
 
       const cleanExcerpt = excerpt.trim() || content.trim().replace(/\s+/g, ' ').slice(0, 180);
-      const { error: insertError } = await supabase.from('posts').insert({
-        author_id: profile.id,
-        kind: 'article',
-        title: title.trim(),
-        category,
-        excerpt: cleanExcerpt,
-        status: 'published',
-        content: content.trim(),
-        video_url: videoUrl.trim() || null,
-        source_url: sourceUrl.trim() || null,
-        image_path: imagePath,
-      });
-      if (insertError) throw insertError;
+      const payload = {
+        article_title: title.trim(),
+        article_category: category,
+        article_excerpt: cleanExcerpt,
+        article_content: content.trim(),
+        article_image_path: imagePath,
+        article_video_url: videoUrl.trim() || null,
+        article_source_url: sourceUrl.trim() || null,
+      };
+
+      const { error: rpcError } = await supabase.rpc('publish_article', payload);
+      if (rpcError) {
+        const { error: insertError } = await supabase.from('posts').insert({
+          author_id: profile.id,
+          kind: 'article',
+          title: payload.article_title,
+          category: payload.article_category,
+          excerpt: payload.article_excerpt,
+          status: 'published',
+          content: payload.article_content,
+          video_url: payload.article_video_url,
+          source_url: payload.article_source_url,
+          image_path: payload.article_image_path,
+        });
+        if (insertError) throw new Error(`${insertError.message}. If this keeps happening, run the latest supabase/schema.sql in Supabase SQL Editor.`);
+      }
 
       setTitle('');
       setCategory('basketball');
@@ -739,7 +758,9 @@ function Composer({ profile, onCreated }) {
       setVideoUrl('');
       setSourceUrl('');
       setImage(null);
+      setSuccess('Article published. It is now visible on the public front page.');
       onCreated?.();
+      setTimeout(() => setSuccess(''), 2500);
     } catch (err) {
       setError(err.message || 'Could not publish article');
     } finally {
@@ -751,7 +772,7 @@ function Composer({ profile, onCreated }) {
     <form className="composer glass-card article-composer" onSubmit={submit}>
       <div className="composer-head">
         <div>
-          <span className="eyebrow">PORT24 EDITORIAL</span>
+          <span className="eyebrow">PORT24</span>
           <h2>Publish article</h2>
         </div>
         <select value={category} onChange={(e) => setCategory(e.target.value)}>
@@ -789,7 +810,8 @@ function Composer({ profile, onCreated }) {
         </label>
       </div>
       {error && <div className="error-box">{error}</div>}
-      <button className="primary-btn" type="submit" disabled={busy}>{busy ? 'Publishing…' : 'Publish article'}</button>
+      {success && <div className="success-box">{success}</div>}
+      <button className="primary-btn" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save article'}</button>
     </form>
   );
 }
@@ -1187,7 +1209,7 @@ function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
       <FeedHero profile={profile} settings={settings} />
       <EditorialBoard posts={posts} profile={profile} settings={settings} onFilter={setFilter} />
       <HomeHighlights profile={profile} />
-      {canPublishArticles(profile?.role) ? <Composer profile={profile} onCreated={loadPosts} /> : <div className="glass-card editor-note"><span className="eyebrow">READING MODE</span><strong>You are logged in as a reader.</strong><p>Only editors can publish articles. Ask an admin to promote your account to editor.</p></div>}
+      {canPublishArticles(profile?.role) ? <Composer profile={profile} onCreated={loadPosts} /> : <div className="glass-card editor-note"><span className="eyebrow">READING MODE</span><strong>Έχεις πρόσβαση ανάγνωσης.</strong><p>Η δημοσίευση άρθρων ενεργοποιείται από τη διαχείριση.</p></div>}
       <div className="feed-toolbar glass-card">
         <strong>{filter === 'all' ? 'Latest feed' : `Latest ${filter}`}</strong>
         <div className="filter-tabs">
@@ -1197,7 +1219,7 @@ function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
         </div>
       </div>
       {loading && <div className="glass-card loading-card">Loading posts…</div>}
-      {!loading && posts.length === 0 && <div className="glass-card loading-card">No articles yet. Editors can publish the first one.</div>}
+      {!loading && posts.length === 0 && <div className="glass-card loading-card">Δεν υπάρχουν ακόμα άρθρα.</div>}
       {posts.map((post) => <PostCard key={post.id} post={post} profile={profile} onChanged={loadPosts} />)}
     </section>
   );
@@ -1267,12 +1289,11 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
     <main className="public-site-shell port24-public-shell">
       <header className="public-topbar port24-topbar glass-card">
         <div className="brand-lockup"><BrandMark settings={settings} /><div><strong>{settings.site_title || APP_NAME}</strong><small>{settings.header_tagline}</small></div></div>
-        <span className="editor-hidden-hint">Editors: /editor</span>
       </header>
 
       <section className="public-hero port24-hero glass-card">
         <div className="hero-copy">
-          <span className="eyebrow">PORT24 EDITORIAL</span>
+          <span className="eyebrow">PORT24</span>
           <h1>Όλος ο Ολυμπιακός σε άρθρα, απόψεις και ρεπορτάζ με υπογραφή.</h1>
           <p>Ποδόσφαιρο, μπάσκετ, Ερασιτέχνης, μεταγραφές, γνώμες και media από τους συντάκτες της κοινότητας.</p>
         </div>
@@ -1338,7 +1359,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
         <div className="glass-card loading-card port24-empty-state">
           <span className="eyebrow">COMING SOON</span>
           <h2>Δεν υπάρχουν ακόμα δημοσιευμένα άρθρα.</h2>
-          <p>Οι editors μπορούν να μπουν από τη κρυφή σελίδα <code>/editor</code> και να δημοσιεύσουν το πρώτο κείμενο.</p>
+          <p>Το πρώτο κείμενο ετοιμάζεται. Μείνε συντονισμένος για νέα άρθρα, γνώμες και ρεπορτάζ.</p>
         </div>
       )}
 
@@ -1466,7 +1487,7 @@ function AdminPanel({ profile }) {
             </div>
             <select value={member.role} disabled={busyId === member.id} onChange={(e) => setRole(member.id, e.target.value)}>
               <option value="member">member</option>
-              <option value="editor">editor</option>
+              <option value="editor">writer</option>
               <option value="moderator">moderator</option>
               <option value="admin">admin</option>
             </select>
@@ -3341,13 +3362,13 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
             <small>{settings.header_tagline}</small>
           </div>
         </div>
-        <button className="primary-btn compact" type="button" onClick={onEnterMembers}>Editor / member login</button>
+        <button className="primary-btn compact" type="button" onClick={onEnterMembers}>Σύνδεση</button>
       </header>
 
       <section className="public-hero glass-card" style={{ '--hero-image': `url(${settings.hero_url || BRAND_HERO})` }}>
-        <span className="eyebrow">PORT24 EDITORIAL</span>
+        <span className="eyebrow">PORT24</span>
         <h1>Άρθρα, γνώμες και νέα για όλο τον Ολυμπιακό.</h1>
-        <p>Διάβασε κείμενα από τους editors του Port24 ανά κατηγορία: μπάσκετ, ποδόσφαιρο, ερασιτέχνης, μεταγραφές, media και απόψεις.</p>
+        <p>Διάβασε κείμενα ανά κατηγορία: μπάσκετ, ποδόσφαιρο, ερασιτέχνης, μεταγραφές, media και απόψεις.</p>
         <div className="public-category-row">
           {ARTICLE_CATEGORIES.map((item) => (
             <button key={item.id} className={category === item.id ? 'active' : ''} type="button" onClick={() => setCategory(item.id)}>{item.label}</button>
@@ -3416,6 +3437,123 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
   );
 }
 
+
+function ArticleManager({ profile }) {
+  const [articles, setArticles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  const loadArticles = useCallback(async () => {
+    setLoading(true);
+    let query = supabase
+      .from('posts')
+      .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
+      .order('created_at', { ascending: false })
+      .limit(80);
+    if (!isStaff(profile?.role)) query = query.eq('author_id', profile.id);
+    const { data } = await query;
+    setArticles(data || []);
+    setLoading(false);
+  }, [profile?.id, profile?.role]);
+
+  useEffect(() => {
+    loadArticles();
+    const channel = supabase
+      .channel('editor-article-manager')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, loadArticles)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadArticles)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [loadArticles]);
+
+  async function confirmDelete() {
+    const target = deleteTarget;
+    setDeleteTarget(null);
+    if (!target?.id) return;
+    const { error } = await supabase.from('posts').delete().eq('id', target.id);
+    if (error) alert(error.message);
+    loadArticles();
+  }
+
+  return (
+    <section className="glass-card editor-clean-panel">
+      <ConfirmModal
+        open={Boolean(deleteTarget)}
+        title="Delete article?"
+        body="This article will be removed from the public page and the members area."
+        confirmLabel="Delete article"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+      />
+      <div className="clean-panel-head">
+        <div>
+          <span className="eyebrow">ARTICLES</span>
+          <h2>{isStaff(profile?.role) ? 'Published articles' : 'My articles'}</h2>
+        </div>
+        <button className="ghost-btn compact" type="button" onClick={loadArticles}>Refresh</button>
+      </div>
+      {loading && <p className="empty-text">Loading articles…</p>}
+      {!loading && articles.length === 0 && <p className="empty-text">No articles yet.</p>}
+      <div className="editor-article-list">
+        {articles.map((article) => (
+          <article key={article.id} className="editor-article-row">
+            {article.image_path ? <img src={publicAssetUrl(BUCKET, article.image_path)} alt="" /> : <div className="article-placeholder-thumb">P24</div>}
+            <div>
+              <strong>{article.title || editorialTitle(article.content)}</strong>
+              <small>{categoryLabel(article.category)} · {displayUser(article.profiles)} · {formatTime(article.created_at)}</small>
+              <p>{article.excerpt || String(article.content || '').slice(0, 140)}</p>
+            </div>
+            {(article.author_id === profile.id || isStaff(profile.role)) && (
+              <button className="danger-mini-btn" type="button" onClick={() => setDeleteTarget(article)}>Delete</button>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EditorDashboard({ profile, setProfile, settings, setView }) {
+  const [tab, setTab] = useState(canPublishArticles(profile?.role) ? 'write' : 'articles');
+  const tabs = [
+    canPublishArticles(profile?.role) && ['write', 'New article'],
+    ['articles', 'Articles'],
+    ['profile', 'Profile'],
+    profile?.role === 'admin' && ['users', 'Users'],
+    profile?.role === 'admin' && ['invites', 'Invites'],
+  ].filter(Boolean);
+
+  return (
+    <main className="editor-studio-page">
+      <section className="editor-studio-hero glass-card">
+        <div>
+          <span className="eyebrow">PORT24 STUDIO</span>
+          <h1>Clean publishing panel</h1>
+          <p>Write articles, manage your posts, update your profile and handle admin tools from one simple area.</p>
+        </div>
+        <div className="editor-quick-actions">
+          <button className="ghost-btn" type="button" onClick={() => window.open('/', '_self')}>Public page</button>
+          {profile?.role === 'admin' && <button className="primary-btn compact" type="button" onClick={() => setView('admin-site')}>Site settings</button>}
+        </div>
+      </section>
+
+      <nav className="editor-tabs glass-card">
+        {tabs.map(([id, label]) => (
+          <button key={id} className={tab === id ? 'active' : ''} type="button" onClick={() => setTab(id)}>{label}</button>
+        ))}
+      </nav>
+
+      <section className="editor-tab-body">
+        {tab === 'write' && <Composer profile={profile} onCreated={() => setTab('articles')} />}
+        {tab === 'articles' && <ArticleManager profile={profile} />}
+        {tab === 'profile' && <ProfileCard profile={profile} setProfile={setProfile} />}
+        {tab === 'users' && profile?.role === 'admin' && <AdminPanel profile={profile} />}
+        {tab === 'invites' && profile?.role === 'admin' && <InvitePanel profile={profile} />}
+      </section>
+    </main>
+  );
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -3423,6 +3561,8 @@ function App() {
   const [siteSettings, setSiteSettings] = useState(DEFAULT_SITE_SETTINGS);
   const [view, setView] = useState('feed');
   const [showMemberGate, setShowMemberGate] = useState(new URLSearchParams(window.location.search).has('invite'));
+  const currentPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
+  const editorMode = currentPath === '/editor' || currentPath === '/login';
 
   const refreshSiteSettings = useCallback(async () => {
     const next = await loadSiteSettings();
@@ -3485,12 +3625,12 @@ function App() {
           onSettingsChanged={refreshSiteSettings}
           goBack={() => setView('feed')}
         />
+      ) : editorMode ? (
+        <EditorDashboard profile={profile} setProfile={setProfile} settings={siteSettings} setView={setView} />
       ) : (
         <main className="dashboard two-column">
           <section className="left-rail">
             <ProfileCard profile={profile} setProfile={setProfile} />
-            <AdminPanel profile={profile} />
-            <InvitePanel profile={profile} />
           </section>
           <Feed profile={profile} settings={siteSettings} />
           <section className="right-rail">
@@ -3498,6 +3638,7 @@ function App() {
               <span className="eyebrow">PIRAEUS BOARD</span>
               <h2>{siteSettings.community_title}</h2>
               <p>{siteSettings.community_text}</p>
+              {profile?.role === 'admin' && <button className="ghost-btn compact" type="button" onClick={() => window.open('/editor', '_self')}>Admin studio</button>}
             </section>
           </section>
         </main>

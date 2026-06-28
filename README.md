@@ -335,9 +335,9 @@ Run the full `supabase/schema.sql` again after deploying v5.6 because it adds `c
 - Mobile and tablet layouts were tightened with a better feed, a safer bottom chat popup, horizontal room picker, and improved touch-sized voice controls.
 - Re-run `supabase/schema.sql` once so chat message DELETE events include the old message id/thread id in Realtime.
 
-## v5.8 Port24 editorial layout
+## v5.8 Port24 writerial layout
 
-This version changes the default identity to **Port24** and adds an editorial sports-blog front page inspired by the logic of RedPointGuard-style sites without copying its design or assets.
+This version changes the default identity to **Port24** and adds an writerial sports-blog front page inspired by the logic of RedPointGuard-style sites without copying its design or assets.
 
 Added layout blocks:
 
@@ -359,38 +359,38 @@ Admins can still replace it from **Site settings**.
 
 ## v5.9 Editorial roles and public front page
 
-This version turns Port24 into a more normal editorial blog:
+This version turns Port24 into a more normal writerial blog:
 
 - Guests who open the root URL see the public front page and can read published articles.
 - Registered users can still use the member area, chat and voice chat.
-- Only users with role `editor`, `moderator`, or `admin` can publish articles.
+- Only users with role `writer`, `moderator`, or `admin` can publish articles.
 - Articles have a title, category, excerpt, body, optional cover image, YouTube link, and source link.
 - The writer name is shown automatically from the author's display name/profile.
 - Categories include Basketball, Football, Ερασιτέχνης, Volleyball, Transfers, Opinion and Media.
 
-After uploading this version, run the full `supabase/schema.sql` again. Then, as admin, promote writers from the Admin panel by setting their role to `editor`.
+After uploading this version, run the full `supabase/schema.sql` again. Then, as admin, promote writers from the Admin panel by setting their role to `writer`.
 
 Guests can enter the member login/join page from the public front page button. Invite links still work with `?invite=TOKEN`.
 
 ## v5.9 Editorial article mode
 
-This version turns the site into a public editorial blog with a private member/chat layer.
+This version turns the site into a public writerial blog with a private member/chat layer.
 
 - Guests can open the front page without logging in and read published articles.
 - Articles show title, category, writer name, date, cover image, source link and optional YouTube embed.
 - Registered members still use handle/password login and invitation registration.
-- Only `editor`, `moderator`, and `admin` roles can publish articles.
-- Admins can promote users from **Admin control**: `member`, `editor`, `moderator`, `admin`.
+- Only `writer`, `moderator`, and `admin` roles can publish articles.
+- Admins can promote users from **Admin control**: `member`, `writer`, `moderator`, `admin`.
 - Categories are: Basketball, Football, Ερασιτέχνης, Volleyball, Transfers, Opinion, Media.
 - Chat and voice chat remain available only after login.
 
-Run the full `supabase/schema.sql` after uploading this version because it adds article fields and the new `editor` role.
+Run the full `supabase/schema.sql` after uploading this version because it adds article fields and the new `writer` role.
 
 ## v6.0 public homepage/editor entry update
 
-- The public homepage is now a polished Port24 editorial front page with a featured-article carousel, styled category filters, latest-articles rail, and article reader modal.
+- The public homepage is now a polished Port24 writerial front page with a featured-article carousel, styled category filters, latest-articles rail, and article reader modal.
 - Public visitors do not need to log in to read articles.
-- Editors/admins log in from the hidden route:
+- Writers/admins log in from the private route:
 
 ```text
 /editor

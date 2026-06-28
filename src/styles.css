@@ -4433,3 +4433,151 @@ body {
   .carousel-title-button h2 { font-size: clamp(1.8rem, 10vw, 3rem); }
   .public-article-card { min-height: unset; }
 }
+
+/* v6.2 cleaner hidden studio + article save fixes */
+.editor-studio-page {
+  width: min(1180px, calc(100% - 28px));
+  margin: 28px auto 110px;
+  display: grid;
+  gap: 18px;
+}
+.editor-studio-hero {
+  padding: clamp(22px, 4vw, 42px);
+  border-radius: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  background:
+    radial-gradient(circle at 88% 12%, rgba(227, 27, 47, .28), transparent 34%),
+    linear-gradient(135deg, rgba(255,255,255,.08), rgba(255,255,255,.025));
+}
+.editor-studio-hero h1 {
+  margin: 7px 0;
+  font-size: clamp(2rem, 5vw, 4.3rem);
+  letter-spacing: -0.07em;
+  line-height: .94;
+}
+.editor-studio-hero p {
+  max-width: 720px;
+  color: var(--muted);
+  font-weight: 750;
+  line-height: 1.55;
+}
+.editor-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.editor-tabs {
+  padding: 8px;
+  border-radius: 24px;
+  display: flex;
+  gap: 8px;
+  position: sticky;
+  top: 10px;
+  z-index: 15;
+}
+.editor-tabs button {
+  flex: 1 1 auto;
+  border: 0;
+  border-radius: 18px;
+  padding: 13px 16px;
+  color: rgba(255,255,255,.72);
+  background: rgba(255,255,255,.055);
+  font-weight: 950;
+  cursor: pointer;
+}
+.editor-tabs button.active,
+.editor-tabs button:hover {
+  color: white;
+  background: linear-gradient(135deg, rgba(227,27,47,.88), rgba(255,255,255,.13));
+  box-shadow: 0 14px 28px rgba(227,27,47,.18);
+}
+.editor-tab-body {
+  display: grid;
+  gap: 18px;
+}
+.editor-tab-body > .side-card,
+.editor-tab-body > .composer,
+.editor-tab-body > .admin-panel {
+  width: 100%;
+  max-width: none;
+}
+.editor-clean-panel {
+  padding: clamp(18px, 3vw, 28px);
+  border-radius: 30px;
+}
+.clean-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.clean-panel-head h2 {
+  margin: 4px 0 0;
+  font-size: clamp(1.7rem, 3vw, 2.6rem);
+  letter-spacing: -0.045em;
+}
+.editor-article-list {
+  display: grid;
+  gap: 12px;
+}
+.editor-article-row {
+  display: grid;
+  grid-template-columns: 112px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 13px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 22px;
+  background: rgba(255,255,255,.045);
+}
+.editor-article-row img,
+.article-placeholder-thumb {
+  width: 112px;
+  height: 74px;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.13);
+}
+.article-placeholder-thumb {
+  display: grid;
+  place-items: center;
+  color: white;
+  font-weight: 1000;
+  background: linear-gradient(135deg, rgba(227,27,47,.85), rgba(20,20,28,.9));
+}
+.editor-article-row strong {
+  display: block;
+  color: white;
+  font-size: 1.02rem;
+  line-height: 1.25;
+}
+.editor-article-row small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 800;
+}
+.editor-article-row p {
+  margin: 7px 0 0;
+  color: rgba(255,255,255,.72);
+  line-height: 1.45;
+}
+.article-composer .primary-btn {
+  justify-self: end;
+  min-width: 190px;
+}
+@media (max-width: 780px) {
+  .editor-studio-page { width: min(100% - 18px, 1180px); margin-top: 12px; }
+  .editor-studio-hero { align-items: flex-start; flex-direction: column; border-radius: 26px; }
+  .editor-tabs { overflow-x: auto; top: 6px; border-radius: 20px; }
+  .editor-tabs button { flex: 0 0 auto; white-space: nowrap; }
+  .editor-article-row { grid-template-columns: 86px 1fr; }
+  .editor-article-row img, .article-placeholder-thumb { width: 86px; height: 64px; }
+  .editor-article-row .danger-mini-btn { grid-column: 1 / -1; justify-self: start; }
+  .article-composer .primary-btn { width: 100%; justify-self: stretch; }
+}
