@@ -371,3 +371,17 @@ This version turns Port24 into a more normal editorial blog:
 After uploading this version, run the full `supabase/schema.sql` again. Then, as admin, promote writers from the Admin panel by setting their role to `editor`.
 
 Guests can enter the member login/join page from the public front page button. Invite links still work with `?invite=TOKEN`.
+
+## v5.9 Editorial article mode
+
+This version turns the site into a public editorial blog with a private member/chat layer.
+
+- Guests can open the front page without logging in and read published articles.
+- Articles show title, category, writer name, date, cover image, source link and optional YouTube embed.
+- Registered members still use handle/password login and invitation registration.
+- Only `editor`, `moderator`, and `admin` roles can publish articles.
+- Admins can promote users from **Admin control**: `member`, `editor`, `moderator`, `admin`.
+- Categories are: Basketball, Football, Ερασιτέχνης, Volleyball, Transfers, Opinion, Media.
+- Chat and voice chat remain available only after login.
+
+Run the full `supabase/schema.sql` after uploading this version because it adds article fields and the new `editor` role.
