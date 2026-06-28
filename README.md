@@ -385,3 +385,27 @@ This version turns the site into a public editorial blog with a private member/c
 - Chat and voice chat remain available only after login.
 
 Run the full `supabase/schema.sql` after uploading this version because it adds article fields and the new `editor` role.
+
+## v6.0 public homepage/editor entry update
+
+- The public homepage is now a polished Port24 editorial front page with a featured-article carousel, styled category filters, latest-articles rail, and article reader modal.
+- Public visitors do not need to log in to read articles.
+- Editors/admins log in from the hidden route:
+
+```text
+/editor
+```
+
+Example:
+
+```text
+https://your-site.vercel.app/editor
+```
+
+The older query link also still works:
+
+```text
+https://your-site.vercel.app/?login=1
+```
+
+Vercel already rewrites all routes to the SPA through `vercel.json`, so `/editor` will load correctly after deployment.

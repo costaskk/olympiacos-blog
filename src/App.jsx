@@ -1224,6 +1224,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
   const [articles, setArticles] = useState([]);
   const [category, setCategory] = useState('all');
   const [selected, setSelected] = useState(null);
+  const [activeSlide, setActiveSlide] = useState(0);
 
   const loadArticles = useCallback(async () => {
     let query = supabase
@@ -1235,6 +1236,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
     if (category !== 'all') query = query.eq('category', category);
     const { data } = await query;
     setArticles(data || []);
+    setActiveSlide(0);
   }, [category]);
 
   useEffect(() => {
@@ -1247,48 +1249,115 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
     return () => { supabase.removeChannel(channel); };
   }, [loadArticles]);
 
-  const lead = articles[0];
-  const rest = articles.slice(1);
+  const featured = articles.slice(0, 5);
+  const current = featured[activeSlide] || articles[0] || null;
+  const rest = articles.filter((article) => article?.id !== current?.id);
+
+  useEffect(() => {
+    if (featured.length <= 1) return undefined;
+    const timer = window.setInterval(() => {
+      setActiveSlide((value) => (value + 1) % featured.length);
+    }, 6500);
+    return () => window.clearInterval(timer);
+  }, [featured.length]);
+
+  const currentImage = current?.image_path ? publicAssetUrl(BUCKET, current.image_path) : (settings.hero_url || BRAND_HERO);
 
   return (
-    <main className="public-site-shell">
-      <header className="public-topbar">
+    <main className="public-site-shell port24-public-shell">
+      <header className="public-topbar port24-topbar glass-card">
         <div className="brand-lockup"><BrandMark settings={settings} /><div><strong>{settings.site_title || APP_NAME}</strong><small>{settings.header_tagline}</small></div></div>
-        <a className="primary-btn public-login-btn" href="?login=1">Editor / member login</a>
+        <span className="editor-hidden-hint">Editors: /editor</span>
       </header>
-      <section className="public-hero glass-card">
-        <span className="eyebrow">PORT24 EDITORIAL</span>
-        <h1>Όλα τα άρθρα για τον Ολυμπιακό, καθαρά, γρήγορα και με υπογραφή συντάκτη.</h1>
-        <p>Basketball, football, Ερασιτέχνης, μεταγραφές, γνώμες και media από τους registered editors της κοινότητας.</p>
+
+      <section className="public-hero port24-hero glass-card">
+        <div className="hero-copy">
+          <span className="eyebrow">PORT24 EDITORIAL</span>
+          <h1>Όλος ο Ολυμπιακός σε άρθρα, απόψεις και ρεπορτάζ με υπογραφή.</h1>
+          <p>Ποδόσφαιρο, μπάσκετ, Ερασιτέχνης, μεταγραφές, γνώμες και media από τους συντάκτες της κοινότητας.</p>
+        </div>
+        <div className="hero-stat-strip">
+          <span><b>{articles.length}</b> άρθρα</span>
+          <span><b>{ARTICLE_CATEGORIES.length - 1}</b> κατηγορίες</span>
+          <span><b>Live</b> updates</span>
+        </div>
       </section>
-      <nav className="public-category-bar glass-card">
+
+      <nav className="public-category-bar port24-category-bar glass-card" aria-label="Article categories">
         {['all', ...ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => item.id)].map((item) => (
-          <button key={item} className={category === item ? 'active' : ''} type="button" onClick={() => setCategory(item)}>{item === 'all' ? 'Όλα' : categoryLabel(item)}</button>
+          <button key={item} className={category === item ? 'active' : ''} type="button" onClick={() => setCategory(item)}>
+            <span>{item === 'all' ? 'Όλα' : categoryLabel(item)}</span>
+          </button>
         ))}
       </nav>
-      {lead && (
-        <section className="public-lead-grid">
-          <PublicArticleCard post={lead} onOpen={setSelected} />
-          <aside className="glass-card public-latest-rail">
+
+      {current && (
+        <section className="article-carousel glass-card">
+          <button className="carousel-image" type="button" onClick={() => setSelected(current)} style={{ '--carousel-image': `url(${currentImage})` }} aria-label="Open featured article">
+            <span className="article-category-pill">{categoryLabel(current.category)}</span>
+          </button>
+          <div className="carousel-copy">
+            <span className="eyebrow">ΝΕΟ ΑΡΘΡΟ</span>
+            <button type="button" className="carousel-title-button" onClick={() => setSelected(current)}>
+              <h2>{current.title || editorialTitle(current.content)}</h2>
+            </button>
+            <p>{current.excerpt || String(current.content || '').replace(/\s+/g, ' ').slice(0, 230)}</p>
+            <div className="carousel-byline">
+              <UserAvatar profile={current.profiles} className="comment-avatar" />
+              <span>Γράφει: <strong>{displayUser(current.profiles)}</strong><small>{formatTime(current.created_at)}</small></span>
+            </div>
+            {featured.length > 1 && (
+              <div className="carousel-dots" aria-label="Featured articles">
+                {featured.map((article, index) => (
+                  <button key={article.id} className={activeSlide === index ? 'active' : ''} type="button" onClick={() => setActiveSlide(index)} aria-label={`Show article ${index + 1}`} />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {articles.length > 0 && (
+        <section className="public-lead-grid port24-editorial-grid">
+          <div className="public-article-grid port24-article-grid">
+            {rest.map((post) => <PublicArticleCard key={post.id} post={post} onOpen={setSelected} />)}
+          </div>
+          <aside className="glass-card public-latest-rail port24-latest-rail">
             <span className="eyebrow">ΤΕΛΕΥΤΑΙΑ ΚΕΙΜΕΝΑ</span>
-            {articles.slice(0, 8).map((post) => <button key={post.id} type="button" onClick={() => setSelected(post)}><strong>{post.title || editorialTitle(post.content)}</strong><small>{displayUser(post.profiles)} · {categoryLabel(post.category)}</small></button>)}
+            {articles.slice(0, 10).map((post, index) => (
+              <button key={post.id} type="button" onClick={() => setSelected(post)}>
+                <b>{String(index + 1).padStart(2, '0')}</b>
+                <span><strong>{post.title || editorialTitle(post.content)}</strong><small>{displayUser(post.profiles)} · {categoryLabel(post.category)}</small></span>
+              </button>
+            ))}
           </aside>
         </section>
       )}
-      <section className="public-article-grid">
-        {rest.map((post) => <PublicArticleCard key={post.id} post={post} onOpen={setSelected} />)}
-        {articles.length === 0 && <div className="glass-card loading-card">Δεν υπάρχουν ακόμα δημοσιευμένα άρθρα.</div>}
-      </section>
+
+      {articles.length === 0 && (
+        <div className="glass-card loading-card port24-empty-state">
+          <span className="eyebrow">COMING SOON</span>
+          <h2>Δεν υπάρχουν ακόμα δημοσιευμένα άρθρα.</h2>
+          <p>Οι editors μπορούν να μπουν από τη κρυφή σελίδα <code>/editor</code> και να δημοσιεύσουν το πρώτο κείμενο.</p>
+        </div>
+      )}
+
       {selected && (
         <div className="article-reader-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
           <article className="article-reader glass-card">
             <button type="button" className="close-reader" onClick={() => setSelected(null)}>Close</button>
+            {selected.image_path && <img className="article-reader-cover" src={publicAssetUrl(BUCKET, selected.image_path)} alt="Article cover" />}
             <span className="kind-pill">{categoryLabel(selected.category)}</span>
             <h1>{selected.title || editorialTitle(selected.content)}</h1>
-            <p className="article-byline">Γράφει: {displayUser(selected.profiles)} · {formatTime(selected.created_at)}</p>
-            {selected.image_path && <img className="post-image" src={supabase.storage.from(BUCKET).getPublicUrl(selected.image_path).data.publicUrl} alt="Article cover" />}
+            <div className="article-byline">
+              <UserAvatar profile={selected.profiles} className="comment-avatar" />
+              <span>Γράφει: <strong>{displayUser(selected.profiles)}</strong> · {formatTime(selected.created_at)}</span>
+            </div>
             <div className="article-reader-content">{selected.content}</div>
             {selected.source_url && isSafeUrl(selected.source_url) && <a className="source-link" href={selected.source_url} target="_blank" rel="noreferrer">Source link</a>}
+            {getYoutubeId(selected.video_url) && (
+              <div className="video-frame"><iframe title="YouTube video" src={`https://www.youtube-nocookie.com/embed/${getYoutubeId(selected.video_url)}`} allowFullScreen /></div>
+            )}
           </article>
         </div>
       )}
@@ -3401,7 +3470,10 @@ function App() {
   if (loading) return <main className="setup-shell"><div className="glass-card loading-card">Loading members area…</div></main>;
   if (!session || !profile) {
     const params = new URLSearchParams(window.location.search);
-    if (params.has('invite') || params.has('login')) return <InviteGate onProfileReady={setProfile} settings={siteSettings} session={session} />;
+    const path = window.location.pathname.replace(/\/+$/, '').toLowerCase();
+    if (params.has('invite') || params.has('login') || path === '/editor' || path === '/login') {
+      return <InviteGate onProfileReady={setProfile} settings={siteSettings} session={session} />;
+    }
     return <PublicFrontPage settings={siteSettings} />;
   }
 
