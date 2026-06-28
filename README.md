@@ -414,3 +414,7 @@ Vercel already rewrites all routes to the SPA through `vercel.json`, so `/editor
 
 This build moves public editorial content to `public.articles` and keeps member/community posts in `public.posts`.
 Run the latest `supabase/schema.sql` after deploying. It creates/repairs the `articles` table, updates `publish_article()`, migrates old `posts.kind = 'article'` rows into `articles`, and enables public read policies/realtime for articles.
+
+## v6.5 standalone article pages
+
+Public article cards now open as standalone pages at `/article/<article-id>` instead of a popup modal. The article page keeps the clean public header and article content only. Clicking the site logo/brand in the article header returns to the front page.

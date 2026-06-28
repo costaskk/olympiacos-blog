@@ -4581,3 +4581,104 @@ body {
   .editor-article-row .danger-mini-btn { grid-column: 1 / -1; justify-self: start; }
   .article-composer .primary-btn { width: 100%; justify-self: stretch; }
 }
+
+/* v6.5 standalone article pages */
+.article-page-shell {
+  width: min(1160px, calc(100% - 32px));
+  padding-bottom: 72px;
+}
+.article-page-topbar {
+  margin-bottom: 24px;
+}
+.logo-home-button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 999px;
+}
+.logo-home-button:hover strong,
+.logo-home-button:focus-visible strong {
+  color: #ffedf0;
+}
+.logo-home-button:focus-visible {
+  outline: 2px solid rgba(255, 74, 88, .75);
+  outline-offset: 8px;
+}
+.article-page-card {
+  overflow: hidden;
+  padding: 0;
+  border-radius: 34px;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .42);
+}
+.article-page-cover {
+  display: block;
+  width: 100%;
+  max-height: 620px;
+  object-fit: cover;
+  border: 0;
+  border-radius: 0;
+  background: rgba(255,255,255,.04);
+}
+.article-page-content {
+  padding: clamp(22px, 5vw, 56px);
+}
+.article-page-content h1 {
+  max-width: 900px;
+  margin: 14px 0 16px;
+  font-size: clamp(2.4rem, 7vw, 5.8rem);
+  line-height: .92;
+  letter-spacing: -.07em;
+}
+.article-page-byline {
+  margin-bottom: 28px;
+}
+.article-page-excerpt {
+  max-width: 860px;
+  color: var(--muted);
+  font-size: clamp(1.05rem, 2vw, 1.28rem);
+  line-height: 1.7;
+  margin: 0 0 26px;
+}
+.article-page-body {
+  max-width: 900px;
+  white-space: normal;
+}
+.article-page-body p {
+  margin: 0 0 1.25em;
+  font-size: clamp(1.05rem, 1.4vw, 1.22rem);
+  line-height: 1.9;
+  color: rgba(255,255,255,.9);
+}
+.article-page-error,
+.article-page-loading {
+  padding: clamp(24px, 5vw, 54px);
+  text-align: center;
+}
+.article-page-error h1 {
+  margin: 10px 0;
+  font-size: clamp(2rem, 5vw, 4rem);
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+@media (max-width: 720px) {
+  .article-page-shell {
+    width: min(100% - 16px, 1160px);
+    padding-top: 8px;
+  }
+  .article-page-card {
+    border-radius: 24px;
+  }
+  .article-page-cover {
+    max-height: 360px;
+  }
+  .article-page-content {
+    padding: 20px;
+  }
+  .article-page-content h1 {
+    font-size: clamp(2.2rem, 13vw, 3.5rem);
+  }
+}

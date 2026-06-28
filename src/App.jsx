@@ -1245,8 +1245,11 @@ function PublicArticleCard({ post, onOpen }) {
 function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
   const [articles, setArticles] = useState([]);
   const [category, setCategory] = useState('all');
-  const [selected, setSelected] = useState(null);
   const [activeSlide, setActiveSlide] = useState(0);
+  const openArticle = useCallback((article) => {
+    if (!article?.id) return;
+    window.location.assign(`/article/${article.id}`);
+  }, []);
 
   const loadArticles = useCallback(async () => {
     let query = supabase
@@ -1314,12 +1317,12 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
 
       {current && (
         <section className="article-carousel glass-card">
-          <button className="carousel-image" type="button" onClick={() => setSelected(current)} style={{ '--carousel-image': `url(${currentImage})` }} aria-label="Open featured article">
+          <button className="carousel-image" type="button" onClick={() => openArticle(current)} style={{ '--carousel-image': `url(${currentImage})` }} aria-label="Open featured article">
             <span className="article-category-pill">{categoryLabel(current.category)}</span>
           </button>
           <div className="carousel-copy">
             <span className="eyebrow">ΝΕΟ ΑΡΘΡΟ</span>
-            <button type="button" className="carousel-title-button" onClick={() => setSelected(current)}>
+            <button type="button" className="carousel-title-button" onClick={() => openArticle(current)}>
               <h2>{current.title || editorialTitle(current.content)}</h2>
             </button>
             <p>{current.excerpt || String(current.content || '').replace(/\s+/g, ' ').slice(0, 230)}</p>
@@ -1341,12 +1344,12 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
       {articles.length > 0 && (
         <section className="public-lead-grid port24-editorial-grid">
           <div className="public-article-grid port24-article-grid">
-            {rest.map((post) => <PublicArticleCard key={post.id} post={post} onOpen={setSelected} />)}
+            {rest.map((post) => <PublicArticleCard key={post.id} post={post} onOpen={openArticle} />)}
           </div>
           <aside className="glass-card public-latest-rail port24-latest-rail">
             <span className="eyebrow">ΤΕΛΕΥΤΑΙΑ ΚΕΙΜΕΝΑ</span>
             {articles.slice(0, 10).map((post, index) => (
-              <button key={post.id} type="button" onClick={() => setSelected(post)}>
+              <button key={post.id} type="button" onClick={() => openArticle(post)}>
                 <b>{String(index + 1).padStart(2, '0')}</b>
                 <span><strong>{post.title || editorialTitle(post.content)}</strong><small>{displayUser(post.profiles)} · {categoryLabel(post.category)}</small></span>
               </button>
@@ -1363,24 +1366,98 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
         </div>
       )}
 
-      {selected && (
-        <div className="article-reader-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
-          <article className="article-reader glass-card">
-            <button type="button" className="close-reader" onClick={() => setSelected(null)}>Close</button>
-            {selected.image_path && <img className="article-reader-cover" src={publicAssetUrl(BUCKET, selected.image_path)} alt="Article cover" />}
-            <span className="kind-pill">{categoryLabel(selected.category)}</span>
-            <h1>{selected.title || editorialTitle(selected.content)}</h1>
-            <div className="article-byline">
-              <UserAvatar profile={selected.profiles} className="comment-avatar" />
-              <span>Γράφει: <strong>{displayUser(selected.profiles)}</strong> · {formatTime(selected.created_at)}</span>
+      {/* Article cards open as standalone pages: /article/:id */}
+    </main>
+  );
+}
+
+
+function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId }) {
+  const [article, setArticle] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const goHome = useCallback(() => {
+    window.location.assign('/');
+  }, []);
+
+  const loadArticle = useCallback(async () => {
+    if (!articleId) {
+      setError('Το άρθρο δεν βρέθηκε.');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError('');
+    const { data, error: queryError } = await supabase
+      .from('articles')
+      .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
+      .eq('id', articleId)
+      .maybeSingle();
+    if (queryError) {
+      setError(queryError.message || 'Δεν ήταν δυνατή η φόρτωση του άρθρου.');
+      setArticle(null);
+    } else if (!data || (data.status && data.status !== 'published')) {
+      setError('Το άρθρο δεν βρέθηκε ή δεν είναι διαθέσιμο.');
+      setArticle(null);
+    } else {
+      setArticle(data);
+    }
+    setLoading(false);
+  }, [articleId]);
+
+  useEffect(() => {
+    loadArticle();
+    const channel = supabase
+      .channel(`public-article-page-${articleId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'articles', filter: `id=eq.${articleId}` }, loadArticle)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadArticle)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [articleId, loadArticle]);
+
+  return (
+    <main className="public-site-shell port24-public-shell article-page-shell">
+      <header className="public-topbar port24-topbar glass-card article-page-topbar">
+        <button className="brand-lockup logo-home-button" type="button" onClick={goHome} aria-label="Back to front page">
+          <BrandMark settings={settings} />
+          <div><strong>{settings.site_title || APP_NAME}</strong><small>{settings.header_tagline}</small></div>
+        </button>
+      </header>
+
+      {loading && <div className="glass-card loading-card article-page-loading">Loading article…</div>}
+
+      {!loading && error && (
+        <section className="glass-card article-page-error">
+          <span className="eyebrow">PORT24</span>
+          <h1>Δεν βρέθηκε το άρθρο.</h1>
+          <p>{error}</p>
+          <button className="primary-btn" type="button" onClick={goHome}>Επιστροφή στην αρχική</button>
+        </section>
+      )}
+
+      {!loading && article && (
+        <article className="article-page-card glass-card">
+          {article.image_path && <img className="article-page-cover" src={publicAssetUrl(BUCKET, article.image_path)} alt="Article cover" />}
+          <div className="article-page-content">
+            <span className="kind-pill">{categoryLabel(article.category)}</span>
+            <h1>{article.title || editorialTitle(article.content)}</h1>
+            <div className="article-byline article-page-byline">
+              <UserAvatar profile={article.profiles} className="comment-avatar" />
+              <span>Γράφει: <strong>{displayUser(article.profiles)}</strong> · {formatTime(article.created_at)}</span>
             </div>
-            <div className="article-reader-content">{selected.content}</div>
-            {selected.source_url && isSafeUrl(selected.source_url) && <a className="source-link" href={selected.source_url} target="_blank" rel="noreferrer">Source link</a>}
-            {getYoutubeId(selected.video_url) && (
-              <div className="video-frame"><iframe title="YouTube video" src={`https://www.youtube-nocookie.com/embed/${getYoutubeId(selected.video_url)}`} allowFullScreen /></div>
+            {article.excerpt && <p className="article-page-excerpt">{article.excerpt}</p>}
+            <div className="article-reader-content article-page-body">
+              {String(article.content || '').split(/\n{2,}/).map((paragraph, index) => (
+                <p key={index}>{paragraph}</p>
+              ))}
+            </div>
+            {article.source_url && isSafeUrl(article.source_url) && <a className="source-link" href={article.source_url} target="_blank" rel="noreferrer">Πηγή</a>}
+            {getYoutubeId(article.video_url) && (
+              <div className="video-frame"><iframe title="YouTube video" src={`https://www.youtube-nocookie.com/embed/${getYoutubeId(article.video_url)}`} allowFullScreen /></div>
             )}
-          </article>
-        </div>
+          </div>
+        </article>
       )}
     </main>
   );
@@ -3561,7 +3638,10 @@ function App() {
   const [siteSettings, setSiteSettings] = useState(DEFAULT_SITE_SETTINGS);
   const [view, setView] = useState('feed');
   const [showMemberGate, setShowMemberGate] = useState(new URLSearchParams(window.location.search).has('invite'));
-  const currentPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
+  const rawPath = window.location.pathname.replace(/\/+$/, '');
+  const currentPath = rawPath.toLowerCase();
+  const articleMatch = rawPath.match(/^\/article\/([0-9a-fA-F-]{8,})$/);
+  const articleId = articleMatch ? articleMatch[1] : '';
   const editorMode = currentPath === '/editor' || currentPath === '/login';
 
   const refreshSiteSettings = useCallback(async () => {
@@ -3609,6 +3689,7 @@ function App() {
   if (!isConfigured()) return <SetupNotice settings={siteSettings} />;
   if (loading) return <main className="setup-shell"><div className="glass-card loading-card">Loading members area…</div></main>;
   if (!session || !profile) {
+    if (articleId) return <ArticlePage settings={siteSettings} articleId={articleId} />;
     const params = new URLSearchParams(window.location.search);
     const path = window.location.pathname.replace(/\/+$/, '').toLowerCase();
     if (params.has('invite') || params.has('login') || path === '/editor' || path === '/login') {
@@ -3616,6 +3697,8 @@ function App() {
     }
     return <PublicFrontPage settings={siteSettings} />;
   }
+
+  if (articleId) return <ArticlePage settings={siteSettings} articleId={articleId} />;
 
   return (
     <Shell profile={profile} setProfile={setProfile} settings={siteSettings} view={view} setView={setView}>
