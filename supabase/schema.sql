@@ -15,7 +15,7 @@ create table if not exists public.profiles (
   avatar_url text,
   bio text not null default '',
   chat_color text not null default '#e31b2f',
-  role text not null default 'member' check (role in ('member', 'moderator', 'admin')),
+  role text not null default 'member' check (role in ('member', 'editor', 'moderator', 'admin')),
   invite_id uuid,
   created_at timestamptz not null default now(),
   last_seen timestamptz not null default now(),
@@ -40,7 +40,7 @@ end $$;
 create table if not exists public.invites (
   id uuid primary key default extensions.gen_random_uuid(),
   token_hash text not null unique,
-  invite_role text not null default 'member' check (invite_role in ('member', 'moderator', 'admin')),
+  invite_role text not null default 'member' check (invite_role in ('member', 'editor', 'moderator', 'admin')),
   created_by uuid references public.profiles(id) on delete set null,
   used_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
@@ -82,7 +82,7 @@ begin
     select 1 from pg_constraint where conname = 'invites_invite_role_check'
   ) then
     alter table public.invites
-      add constraint invites_invite_role_check check (invite_role in ('member', 'moderator', 'admin'));
+      add constraint invites_invite_role_check check (invite_role in ('member', 'editor', 'moderator', 'admin'));
   end if;
 end $$;
 
@@ -96,20 +96,74 @@ begin
   end if;
 end $$;
 
+
+-- v5.9 editor/article roles. Safe to run repeatedly on existing databases.
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'profiles_role_check') then
+    alter table public.profiles drop constraint profiles_role_check;
+  end if;
+  alter table public.profiles add constraint profiles_role_check check (role in ('member', 'editor', 'moderator', 'admin'));
+
+  if exists (select 1 from pg_constraint where conname = 'invites_invite_role_check') then
+    alter table public.invites drop constraint invites_invite_role_check;
+  end if;
+  alter table public.invites add constraint invites_invite_role_check check (invite_role in ('member', 'editor', 'moderator', 'admin'));
+end $$;
+
 create table if not exists public.posts (
   id uuid primary key default extensions.gen_random_uuid(),
   author_id uuid not null references public.profiles(id) on delete cascade,
-  kind text not null default 'post' check (kind in ('post', 'news', 'image', 'video')),
+  kind text not null default 'article' check (kind in ('article', 'post', 'news', 'image', 'video')),
+  title text,
+  category text not null default 'opinion' check (category in ('basketball', 'football', 'erasitexnhs', 'volleyball', 'transfers', 'opinion', 'media')),
+  excerpt text,
+  status text not null default 'published' check (status in ('draft', 'published')),
   content text not null,
   image_path text,
   video_url text,
   source_url text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint posts_content_len check (char_length(content) between 1 and 12000),
+  constraint posts_title_len check (title is null or char_length(title) between 1 and 180),
+  constraint posts_excerpt_len check (excerpt is null or char_length(excerpt) <= 400),
+  constraint posts_title_len check (title is null or char_length(title) between 1 and 180),
+  constraint posts_excerpt_len check (excerpt is null or char_length(excerpt) <= 420),
+  constraint posts_content_len check (char_length(content) between 1 and 20000),
   constraint posts_source_url_len check (source_url is null or char_length(source_url) <= 600),
   constraint posts_video_url_len check (video_url is null or char_length(video_url) <= 600)
 );
+
+
+alter table public.posts add column if not exists title text;
+alter table public.posts add column if not exists category text not null default 'opinion';
+alter table public.posts add column if not exists excerpt text;
+alter table public.posts add column if not exists status text not null default 'published';
+update public.posts set title = left(regexp_replace(content, '\s+', ' ', 'g'), 120) where title is null;
+
+
+-- Editorial article fields added in v5.9.
+alter table public.posts add column if not exists title text;
+alter table public.posts add column if not exists excerpt text;
+alter table public.posts add column if not exists category text not null default 'basketball';
+alter table public.posts add column if not exists status text not null default 'published';
+
+-- Upgrade old kind/category constraints if this database was created by an older version.
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'posts_kind_check') then
+    alter table public.posts drop constraint posts_kind_check;
+  end if;
+  alter table public.posts add constraint posts_kind_check check (kind in ('post', 'news', 'image', 'video', 'article'));
+
+  if not exists (select 1 from pg_constraint where conname = 'posts_category_check') then
+    alter table public.posts add constraint posts_category_check check (category in ('basketball', 'football', 'erasitexnhs', 'volleyball', 'transfers', 'opinion', 'media'));
+  end if;
+
+  if not exists (select 1 from pg_constraint where conname = 'posts_status_check') then
+    alter table public.posts add constraint posts_status_check check (status in ('draft', 'published'));
+  end if;
+end $$;
 
 create table if not exists public.comments (
   id uuid primary key default extensions.gen_random_uuid(),
@@ -231,6 +285,20 @@ as $$
   );
 $$;
 
+
+create or replace function public.can_publish_articles(check_user uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = check_user and role in ('admin', 'moderator', 'editor')
+  );
+$$;
+
 create or replace function public.is_full_admin(check_user uuid default auth.uid())
 returns boolean
 language sql
@@ -245,6 +313,19 @@ as $$
 $$;
 
 -- Backwards-compatible name used by older policies.
+create or replace function public.can_publish_articles(check_user uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = check_user and role in ('admin', 'moderator', 'editor')
+  );
+$$;
+
 create or replace function public.is_admin(check_user uuid default auth.uid())
 returns boolean
 language sql
@@ -469,7 +550,7 @@ begin
     raise exception 'Only admins can change roles';
   end if;
 
-  if new_role not in ('member', 'moderator', 'admin') then
+  if new_role not in ('member', 'editor', 'moderator', 'admin') then
     raise exception 'Invalid role';
   end if;
 
@@ -500,6 +581,8 @@ revoke all on function public.create_chat_thread(text, uuid[]) from public, anon
 grant execute on function public.create_invite(integer) to authenticated;
 grant execute on function public.accept_invite(text, text, text) to authenticated;
 grant execute on function public.admin_set_user_role(uuid, text) to authenticated;
+grant execute on function public.can_publish_articles(uuid) to authenticated;
+grant execute on function public.can_publish_articles(uuid) to anon, authenticated;
 grant execute on function public.create_chat_thread(text, uuid[]) to authenticated;
 
 alter table public.profiles enable row level security;
@@ -514,8 +597,9 @@ alter table public.chat_thread_members enable row level security;
 alter table public.chat_messages enable row level security;
 
 drop policy if exists profiles_select_authenticated on public.profiles;
-create policy profiles_select_authenticated on public.profiles
-for select to authenticated
+drop policy if exists profiles_public_select on public.profiles;
+create policy profiles_public_select on public.profiles
+for select to anon, authenticated
 using (true);
 
 drop policy if exists profiles_update_self on public.profiles;
@@ -558,20 +642,22 @@ for select to authenticated
 using (created_by = auth.uid() or used_by = auth.uid() or public.is_full_admin());
 
 drop policy if exists posts_select_authenticated on public.posts;
-create policy posts_select_authenticated on public.posts
-for select to authenticated
-using (true);
+drop policy if exists posts_select_public_published on public.posts;
+drop policy if exists posts_public_select_published on public.posts;
+create policy posts_public_select_published on public.posts
+for select to anon, authenticated
+using (status = 'published' or author_id = auth.uid() or public.is_staff());
 
 drop policy if exists posts_insert_self on public.posts;
 create policy posts_insert_self on public.posts
 for insert to authenticated
-with check (author_id = auth.uid());
+with check (author_id = auth.uid() and public.can_publish_articles());
 
 drop policy if exists posts_update_self_or_admin on public.posts;
 create policy posts_update_self_or_admin on public.posts
 for update to authenticated
-using (author_id = auth.uid() or public.is_staff())
-with check (author_id = auth.uid() or public.is_staff());
+using ((author_id = auth.uid() and public.can_publish_articles()) or public.is_staff())
+with check ((author_id = auth.uid() and public.can_publish_articles()) or public.is_staff());
 
 drop policy if exists posts_delete_self_or_admin on public.posts;
 create policy posts_delete_self_or_admin on public.posts
@@ -820,3 +906,59 @@ create policy site_assets_admin_delete on storage.objects
 for delete to authenticated
 using (bucket_id = 'site-assets' and public.is_full_admin());
 
+
+-- v5.9 editorial upgrades: make old projects accept editor role and article fields.
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'profiles_role_check') then
+    alter table public.profiles drop constraint profiles_role_check;
+  end if;
+  alter table public.profiles add constraint profiles_role_check check (role in ('member', 'editor', 'moderator', 'admin'));
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'invites_invite_role_check') then
+    alter table public.invites drop constraint invites_invite_role_check;
+  end if;
+  alter table public.invites add constraint invites_invite_role_check check (invite_role in ('member', 'editor', 'moderator', 'admin'));
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'posts_kind_check') then
+    alter table public.posts drop constraint posts_kind_check;
+  end if;
+  alter table public.posts add constraint posts_kind_check check (kind in ('article', 'post', 'news', 'image', 'video'));
+exception when duplicate_object then null;
+end $$;
+
+alter table public.posts add column if not exists title text;
+alter table public.posts add column if not exists category text not null default 'opinion';
+alter table public.posts add column if not exists excerpt text;
+alter table public.posts add column if not exists status text not null default 'published';
+
+update public.posts set title = left(regexp_replace(content, '\s+', ' ', 'g'), 120) where title is null;
+update public.posts set category = 'opinion' where category is null;
+update public.posts set status = 'published' where status is null;
+
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'posts_category_check') then
+    alter table public.posts drop constraint posts_category_check;
+  end if;
+  alter table public.posts add constraint posts_category_check check (category in ('basketball', 'football', 'erasitexnhs', 'volleyball', 'transfers', 'opinion', 'media'));
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'posts_status_check') then
+    alter table public.posts drop constraint posts_status_check;
+  end if;
+  alter table public.posts add constraint posts_status_check check (status in ('draft', 'published'));
+exception when duplicate_object then null;
+end $$;

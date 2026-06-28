@@ -334,3 +334,40 @@ Run the full `supabase/schema.sql` again after deploying v5.6 because it adds `c
 - Voice room presence now sends periodic keep-alive heartbeats, refreshes member state more often, and renegotiates peer audio if a browser temporarily disconnects.
 - Mobile and tablet layouts were tightened with a better feed, a safer bottom chat popup, horizontal room picker, and improved touch-sized voice controls.
 - Re-run `supabase/schema.sql` once so chat message DELETE events include the old message id/thread id in Realtime.
+
+## v5.8 Port24 editorial layout
+
+This version changes the default identity to **Port24** and adds an editorial sports-blog front page inspired by the logic of RedPointGuard-style sites without copying its design or assets.
+
+Added layout blocks:
+
+- Red Notes numbered latest-post rail
+- Latest texts lead story area
+- Viewers Top 12-style sidebar list
+- Sections/columns navigation
+- Media & clips block
+- Community strip
+- Existing floating chat, private/group rooms, voice chat, admin branding, login and upload features remain in place
+
+Default logo file:
+
+```text
+public/brand/port24-logo.png
+```
+
+Admins can still replace it from **Site settings**.
+
+## v5.9 Editorial roles and public front page
+
+This version turns Port24 into a more normal editorial blog:
+
+- Guests who open the root URL see the public front page and can read published articles.
+- Registered users can still use the member area, chat and voice chat.
+- Only users with role `editor`, `moderator`, or `admin` can publish articles.
+- Articles have a title, category, excerpt, body, optional cover image, YouTube link, and source link.
+- The writer name is shown automatically from the author's display name/profile.
+- Categories include Basketball, Football, Ερασιτέχνης, Volleyball, Transfers, Opinion and Media.
+
+After uploading this version, run the full `supabase/schema.sql` again. Then, as admin, promote writers from the Admin panel by setting their role to `editor`.
+
+Guests can enter the member login/join page from the public front page button. Invite links still work with `?invite=TOKEN`.

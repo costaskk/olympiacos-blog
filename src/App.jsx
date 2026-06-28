@@ -7,8 +7,8 @@ import './styles.css';
 const BUCKET = 'post-images';
 const SITE_ASSETS_BUCKET = 'site-assets';
 const PROFILE_IMAGES_BUCKET = 'profile-images';
-const APP_NAME = 'Thrylos Agora';
-const BRAND_LOGO_CANDIDATES = ['/brand/olympiacos-logo.png', '/brand/community-crest.svg'];
+const APP_NAME = 'Port24';
+const BRAND_LOGO_CANDIDATES = ['/brand/port24-logo.png', '/brand/olympiacos-logo.png', '/brand/community-crest.svg'];
 const BRAND_HERO = '/brand/red-white-hero.svg';
 const OFFICIAL_HERO = '/brand/olympiacos-hero.jpg';
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -46,24 +46,33 @@ function friendlyMicError(error) {
 
 
 const DEFAULT_SITE_SETTINGS = {
-  site_title: 'Thrylos Agora',
-  tagline: 'Anonymous. Invite-only. Red-white agora.',
-  header_tagline: 'Independent red-white community',
-  gate_heading: 'A clean private red-white blog built for matchday talk.',
-  gate_intro: 'Post matchday reactions, transfer thoughts, images, YouTube links, and news. Join the live general chat, private messages, group rooms, and voice room using only a one-use invite.',
-  feed_eyebrow: 'ΘΡΥΛΟΣ AGORA · MEMBERS BOARD',
-  feed_heading: 'The red-white feed for news, reactions and member posts.',
-  feed_intro: 'A polished members-only board for match reactions, transfer rumours, news links, images, clips and live community talk.',
-  community_title: 'Red-white community hub',
-  community_text: 'Post carefully, keep the board clean, and use the floating chat for general talk, private messages and matchday rooms.',
-  footer_text: 'Private red-white members area · built for clean matchday discussion.',
+  site_title: 'Port24',
+  tagline: 'Ολυμπιακός blog με υπογραφή.',
+  header_tagline: 'Independent red-white blog & community',
+  gate_heading: 'The private red-white blog for matchday, news and member opinions.',
+  gate_intro: 'Read columns, publish reactions, share images and YouTube clips, follow matchday notes, and keep live talk inside general, private and group rooms.',
+  feed_eyebrow: 'PORT24 · RED-WHITE BOARD',
+  feed_heading: 'Latest texts, red notes, opinions and member posts.',
+  feed_intro: 'An editorial-style members area inspired by modern sports blogs: featured notes, latest texts, columns, media posts, member rooms and live voice.',
+  community_title: 'Port24 community hub',
+  community_text: 'A clean private board for general Olympiakos discussion, matchday reactions, news links, columns, media and live rooms.',
+  footer_text: 'Port24 · private red-white members area.',
   logo_url: '',
   hero_url: '',
 };
 
 const CHAT_COLORS = ['#e31b2f', '#ffffff', '#ffb703', '#2dd4bf', '#60a5fa', '#c084fc', '#fb7185', '#34d399'];
-const AUTH_EMAIL_DOMAIN = 'members.thrylos-agora.invalid';
-
+const AUTH_EMAIL_DOMAIN = 'members.port24.invalid';
+const ARTICLE_CATEGORIES = [
+  { id: 'all', label: 'Όλα' },
+  { id: 'basketball', label: 'Μπάσκετ' },
+  { id: 'football', label: 'Ποδόσφαιρο' },
+  { id: 'erasitexnhs', label: 'Ερασιτέχνης' },
+  { id: 'volleyball', label: 'Βόλεϊ' },
+  { id: 'transfers', label: 'Μεταγραφές' },
+  { id: 'opinion', label: 'Απόψεις' },
+  { id: 'media', label: 'Media' },
+];
 function formatTime(value) {
   if (!value) return '';
   return new Intl.DateTimeFormat('el-GR', {
@@ -320,11 +329,20 @@ async function loadSiteSettings() {
 function roleBadge(role) {
   if (role === 'admin') return 'Founder';
   if (role === 'moderator') return 'Mod';
+  if (role === 'editor') return 'Editor';
   return 'Member';
 }
 
 function isStaff(role) {
   return role === 'admin' || role === 'moderator';
+}
+
+function canPublishArticles(role) {
+  return role === 'admin' || role === 'moderator' || role === 'editor';
+}
+
+function categoryLabel(category) {
+  return ARTICLE_CATEGORIES.find((item) => item.id === category)?.label || 'Γενικά';
 }
 
 function BrandMark({ large = false, settings = DEFAULT_SITE_SETTINGS }) {
@@ -654,7 +672,10 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
 }
 
 function Composer({ profile, onCreated }) {
-  const [kind, setKind] = useState('post');
+  const allowed = canPublishArticles(profile?.role);
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('basketball');
+  const [excerpt, setExcerpt] = useState('');
   const [content, setContent] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
@@ -662,13 +683,24 @@ function Composer({ profile, onCreated }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  if (!allowed) {
+    return (
+      <section className="composer glass-card editor-locked-card">
+        <span className="eyebrow">EDITORIAL ACCESS</span>
+        <h2>Read-only member access</h2>
+        <p>Articles are published by registered editors. Ask an admin to change your role to Editor if you should be able to write for Port24.</p>
+      </section>
+    );
+  }
+
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
     setError('');
 
     try {
-      if (!content.trim()) throw new Error('Write something first.');
+      if (!title.trim()) throw new Error('Add an article title.');
+      if (!content.trim()) throw new Error('Write the article body first.');
       if (sourceUrl && !isSafeUrl(sourceUrl)) throw new Error('Source URL must start with http:// or https://');
       if (videoUrl && !getYoutubeId(videoUrl)) throw new Error('Use a valid YouTube link.');
 
@@ -685,9 +717,14 @@ function Composer({ profile, onCreated }) {
         if (uploadError) throw uploadError;
       }
 
+      const cleanExcerpt = excerpt.trim() || content.trim().replace(/\s+/g, ' ').slice(0, 180);
       const { error: insertError } = await supabase.from('posts').insert({
         author_id: profile.id,
-        kind,
+        kind: 'article',
+        title: title.trim(),
+        category,
+        excerpt: cleanExcerpt,
+        status: 'published',
         content: content.trim(),
         video_url: videoUrl.trim() || null,
         source_url: sourceUrl.trim() || null,
@@ -695,39 +732,50 @@ function Composer({ profile, onCreated }) {
       });
       if (insertError) throw insertError;
 
+      setTitle('');
+      setCategory('basketball');
+      setExcerpt('');
       setContent('');
       setVideoUrl('');
       setSourceUrl('');
       setImage(null);
       onCreated?.();
     } catch (err) {
-      setError(err.message || 'Could not publish post');
+      setError(err.message || 'Could not publish article');
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <form className="composer glass-card" onSubmit={submit}>
+    <form className="composer glass-card article-composer" onSubmit={submit}>
       <div className="composer-head">
-        <h2>Publish</h2>
-        <select value={kind} onChange={(e) => setKind(e.target.value)}>
-          <option value="post">Text post</option>
-          <option value="news">News</option>
-          <option value="image">Image</option>
-          <option value="video">YouTube</option>
+        <div>
+          <span className="eyebrow">PORT24 EDITORIAL</span>
+          <h2>Publish article</h2>
+        </div>
+        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          {ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
         </select>
       </div>
+      <label>
+        Article title
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Π.χ. Η επόμενη μέρα του Ολυμπιακού" maxLength={160} required />
+      </label>
+      <label>
+        Short intro / excerpt
+        <textarea value={excerpt} onChange={(e) => setExcerpt(e.target.value)} placeholder="A short summary for the front page…" rows={2} maxLength={360} />
+      </label>
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        placeholder="Write a clean post, match reaction, transfer thought, or news summary…"
-        rows={6}
-        maxLength={12000}
+        placeholder="Write the full article, column, report, match reaction or news analysis…"
+        rows={9}
+        maxLength={20000}
       />
       <div className="composer-grid">
         <label className="upload-label">
-          <span>Image</span>
+          <span>Cover image</span>
           <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setImage(e.target.files?.[0] || null)} />
           <em>{image ? image.name : 'Upload PNG, JPG, WebP or GIF'}</em>
         </label>
@@ -741,7 +789,7 @@ function Composer({ profile, onCreated }) {
         </label>
       </div>
       {error && <div className="error-box">{error}</div>}
-      <button className="primary-btn" type="submit" disabled={busy}>{busy ? 'Publishing…' : 'Publish post'}</button>
+      <button className="primary-btn" type="submit" disabled={busy}>{busy ? 'Publishing…' : 'Publish article'}</button>
     </form>
   );
 }
@@ -753,7 +801,7 @@ function PostCard({ post, profile, onChanged }) {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const author = post.profiles;
   const youtubeId = getYoutubeId(post.video_url);
-  const canDelete = post.author_id === profile.id || isStaff(profile.role);
+  const canDelete = profile && (post.author_id === profile.id || isStaff(profile.role));
   const imageUrl = useMemo(() => {
     if (!post.image_path) return null;
     return supabase.storage.from(BUCKET).getPublicUrl(post.image_path).data.publicUrl;
@@ -846,11 +894,14 @@ function PostCard({ post, profile, onChanged }) {
           </div>
         </div>
         <div className="post-actions">
-          <span className={`kind-pill ${post.kind}`}>{post.kind}</span>
+          <span className={`kind-pill ${post.category || post.kind}`}>{categoryLabel(post.category)}</span>
           {canDelete && <button className="danger-mini-btn" type="button" onClick={deletePost}>Delete</button>}
         </div>
       </header>
 
+      {post.category && <span className="article-category-pill">{categoryLabel(post.category)}</span>}
+      {post.title && <h2 className="article-title">{post.title}</h2>}
+      {post.excerpt && <p className="article-excerpt">{post.excerpt}</p>}
       <p className="post-content">{post.content}</p>
 
       {imageUrl && <img className="post-image" src={imageUrl} alt="Post upload" loading="lazy" />}
@@ -945,6 +996,141 @@ function HomeHighlights({ profile }) {
   );
 }
 
+
+function editorialTitle(text = '') {
+  const clean = String(text || '').trim().replace(/\s+/g, ' ');
+  if (!clean) return 'Untitled member post';
+  return clean.length > 88 ? `${clean.slice(0, 88).trim()}…` : clean;
+}
+
+function sectionLabel(kind = 'article', category = '') {
+  if (category) return categoryLabel(category);
+  if (kind === 'news') return 'News';
+  if (kind === 'video') return 'Video';
+  if (kind === 'image') return 'Media';
+  return 'Article';
+}
+
+function EditorialBoard({ posts, profile, settings = DEFAULT_SITE_SETTINGS, onFilter }) {
+  const redNotes = posts.slice(0, 12);
+  const latest = posts.slice(0, 6);
+  const media = posts.filter((post) => post.kind === 'image' || post.kind === 'video').slice(0, 4);
+  const columns = posts.filter((post) => post.kind === 'post' || post.kind === 'news').slice(0, 5);
+  const top = posts.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).slice(0, 12);
+
+  return (
+    <section className="editorial-board">
+      <div className="red-notes-panel glass-card">
+        <div className="panel-title-row">
+          <span className="eyebrow">RED NOTES</span>
+          <button type="button" className="mini-link-btn" onClick={() => onFilter?.('all')}>All posts</button>
+        </div>
+        <ol className="red-notes-list">
+          {redNotes.length === 0 && <li><span>01</span><strong>No notes yet.</strong><em>Publish the first one.</em></li>}
+          {redNotes.map((post, index) => (
+            <li key={post.id}>
+              <span>{String(index + 1).padStart(2, '0')}</span>
+              <strong>{(post.title || editorialTitle(post.content))}</strong>
+              <em>{formatTime(post.created_at)}</em>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <div className="editorial-main glass-card">
+        <div className="panel-title-row">
+          <span className="eyebrow">ΤΕΛΕΥΤΑΙΑ ΚΕΙΜΕΝΑ</span>
+          <span className="section-count">{latest.length} latest</span>
+        </div>
+        <div className="lead-story">
+          {latest[0] ? (
+            <>
+              <span className={`kind-pill ${latest[0].kind}`}>{sectionLabel(latest[0].kind, latest[0].category)}</span>
+              <h2>{editorialTitle(latest[0].content)}</h2>
+              <p>{String(latest[0].content || '').slice(0, 220)}{String(latest[0].content || '').length > 220 ? '…' : ''}</p>
+              <small>{displayUser(latest[0].profiles)} · {formatTime(latest[0].created_at)}</small>
+            </>
+          ) : (
+            <>
+              <span className="kind-pill">Start</span>
+              <h2>Build the first front-page story.</h2>
+              <p>Use the composer below to publish the first Port24 text, news item, image or video.</p>
+            </>
+          )}
+        </div>
+        <div className="latest-story-grid">
+          {latest.slice(1).map((post) => (
+            <article key={post.id} className="latest-story-card">
+              <span>{sectionLabel(post.kind, post.category)}</span>
+              <strong>{(post.title || editorialTitle(post.content))}</strong>
+              <small>{displayUser(post.profiles)} · {formatTime(post.created_at)}</small>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      <aside className="editorial-side">
+        <div className="glass-card side-rank-card">
+          <div className="panel-title-row"><span className="eyebrow">VIEWERS TOP 12</span></div>
+          <ol>
+            {top.map((post, index) => (
+              <li key={post.id}><span>{index + 1}</span><strong>{(post.title || editorialTitle(post.content))}</strong></li>
+            ))}
+            {top.length === 0 && <li><span>1</span><strong>No entries yet</strong></li>}
+          </ol>
+        </div>
+        <div className="glass-card side-sections-card">
+          <div className="panel-title-row"><span className="eyebrow">ΣΤΗΛΕΣ</span></div>
+          <button type="button" onClick={() => onFilter?.('basketball')}>Basketball</button>
+          <button type="button" onClick={() => onFilter?.('football')}>Football</button>
+          <button type="button" onClick={() => onFilter?.('erasitexnhs')}>Ερασιτέχνης</button>
+          <button type="button" onClick={() => onFilter?.('transfers')}>Transfers</button>
+        </div>
+      </aside>
+
+      <div className="editorial-strip glass-card">
+        <div>
+          <span className="eyebrow">COMMUNITY</span>
+          <strong>{settings.community_title}</strong>
+          <p>{settings.community_text}</p>
+        </div>
+        <div className="strip-actions">
+          <button type="button" className="ghost-btn compact" onClick={() => onFilter?.('all')}>Latest feed</button>
+          <button type="button" className="ghost-btn compact" onClick={() => onFilter?.('video')}>Videos</button>
+        </div>
+      </div>
+
+      {media.length > 0 && (
+        <div className="editorial-media glass-card">
+          <div className="panel-title-row"><span className="eyebrow">MEDIA & CLIPS</span></div>
+          <div className="media-mini-grid">
+            {media.map((post) => (
+              <article key={post.id}>
+                <span>{sectionLabel(post.kind, post.category)}</span>
+                <strong>{(post.title || editorialTitle(post.content))}</strong>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {columns.length > 0 && (
+        <div className="editorial-columns glass-card">
+          <div className="panel-title-row"><span className="eyebrow">COLUMNS</span></div>
+          <div className="column-link-grid">
+            {columns.map((post) => (
+              <article key={post.id}>
+                <strong>{(post.title || editorialTitle(post.content))}</strong>
+                <small>{displayUser(post.profiles)} · {formatTime(post.created_at)}</small>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function TypingIndicator({ typers }) {
   const people = Object.values(typers).filter(Boolean);
   if (people.length === 0) return null;
@@ -980,7 +1166,7 @@ function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
       .order('created_at', { ascending: false })
       .limit(50);
 
-    if (filter !== 'all') query = query.eq('kind', filter);
+    if (filter !== 'all') query = query.eq('category', filter);
     const { data, error } = await query;
     if (!error) setPosts(data || []);
     setLoading(false);
@@ -999,20 +1185,114 @@ function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
   return (
     <section className="feed-column">
       <FeedHero profile={profile} settings={settings} />
+      <EditorialBoard posts={posts} profile={profile} settings={settings} onFilter={setFilter} />
       <HomeHighlights profile={profile} />
-      <Composer profile={profile} onCreated={loadPosts} />
+      {canPublishArticles(profile?.role) ? <Composer profile={profile} onCreated={loadPosts} /> : <div className="glass-card editor-note"><span className="eyebrow">READING MODE</span><strong>You are logged in as a reader.</strong><p>Only editors can publish articles. Ask an admin to promote your account to editor.</p></div>}
       <div className="feed-toolbar glass-card">
-        <strong>Latest posts</strong>
+        <strong>{filter === 'all' ? 'Latest feed' : `Latest ${filter}`}</strong>
         <div className="filter-tabs">
-          {['all', 'post', 'news', 'image', 'video'].map((item) => (
-            <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>
+          {['all', ...ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => item.id)].map((item) => (
+            <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item === 'all' ? 'All' : categoryLabel(item)}</button>
           ))}
         </div>
       </div>
       {loading && <div className="glass-card loading-card">Loading posts…</div>}
-      {!loading && posts.length === 0 && <div className="glass-card loading-card">No posts yet. Publish the first one.</div>}
+      {!loading && posts.length === 0 && <div className="glass-card loading-card">No articles yet. Editors can publish the first one.</div>}
       {posts.map((post) => <PostCard key={post.id} post={post} profile={profile} onChanged={loadPosts} />)}
     </section>
+  );
+}
+
+
+function PublicArticleCard({ post, onOpen }) {
+  const author = post.profiles;
+  const imageUrl = post.image_path ? supabase.storage.from(BUCKET).getPublicUrl(post.image_path).data.publicUrl : '';
+  return (
+    <article className="public-article-card glass-card" onClick={() => onOpen?.(post)} role="button" tabIndex={0}>
+      {imageUrl && <img src={imageUrl} alt="Article cover" loading="lazy" />}
+      <div className="public-article-body">
+        <span className="kind-pill">{categoryLabel(post.category)}</span>
+        <h2>{post.title || editorialTitle(post.content)}</h2>
+        <p>{post.excerpt || String(post.content || '').slice(0, 210)}</p>
+        <small>Γράφει: {displayUser(author)} · {formatTime(post.created_at)}</small>
+      </div>
+    </article>
+  );
+}
+
+function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
+  const [articles, setArticles] = useState([]);
+  const [category, setCategory] = useState('all');
+  const [selected, setSelected] = useState(null);
+
+  const loadArticles = useCallback(async () => {
+    let query = supabase
+      .from('posts')
+      .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
+      .eq('status', 'published')
+      .order('created_at', { ascending: false })
+      .limit(60);
+    if (category !== 'all') query = query.eq('category', category);
+    const { data } = await query;
+    setArticles(data || []);
+  }, [category]);
+
+  useEffect(() => {
+    loadArticles();
+    const channel = supabase
+      .channel('public-articles')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, loadArticles)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadArticles)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [loadArticles]);
+
+  const lead = articles[0];
+  const rest = articles.slice(1);
+
+  return (
+    <main className="public-site-shell">
+      <header className="public-topbar">
+        <div className="brand-lockup"><BrandMark settings={settings} /><div><strong>{settings.site_title || APP_NAME}</strong><small>{settings.header_tagline}</small></div></div>
+        <a className="primary-btn public-login-btn" href="?login=1">Editor / member login</a>
+      </header>
+      <section className="public-hero glass-card">
+        <span className="eyebrow">PORT24 EDITORIAL</span>
+        <h1>Όλα τα άρθρα για τον Ολυμπιακό, καθαρά, γρήγορα και με υπογραφή συντάκτη.</h1>
+        <p>Basketball, football, Ερασιτέχνης, μεταγραφές, γνώμες και media από τους registered editors της κοινότητας.</p>
+      </section>
+      <nav className="public-category-bar glass-card">
+        {['all', ...ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => item.id)].map((item) => (
+          <button key={item} className={category === item ? 'active' : ''} type="button" onClick={() => setCategory(item)}>{item === 'all' ? 'Όλα' : categoryLabel(item)}</button>
+        ))}
+      </nav>
+      {lead && (
+        <section className="public-lead-grid">
+          <PublicArticleCard post={lead} onOpen={setSelected} />
+          <aside className="glass-card public-latest-rail">
+            <span className="eyebrow">ΤΕΛΕΥΤΑΙΑ ΚΕΙΜΕΝΑ</span>
+            {articles.slice(0, 8).map((post) => <button key={post.id} type="button" onClick={() => setSelected(post)}><strong>{post.title || editorialTitle(post.content)}</strong><small>{displayUser(post.profiles)} · {categoryLabel(post.category)}</small></button>)}
+          </aside>
+        </section>
+      )}
+      <section className="public-article-grid">
+        {rest.map((post) => <PublicArticleCard key={post.id} post={post} onOpen={setSelected} />)}
+        {articles.length === 0 && <div className="glass-card loading-card">Δεν υπάρχουν ακόμα δημοσιευμένα άρθρα.</div>}
+      </section>
+      {selected && (
+        <div className="article-reader-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
+          <article className="article-reader glass-card">
+            <button type="button" className="close-reader" onClick={() => setSelected(null)}>Close</button>
+            <span className="kind-pill">{categoryLabel(selected.category)}</span>
+            <h1>{selected.title || editorialTitle(selected.content)}</h1>
+            <p className="article-byline">Γράφει: {displayUser(selected.profiles)} · {formatTime(selected.created_at)}</p>
+            {selected.image_path && <img className="post-image" src={supabase.storage.from(BUCKET).getPublicUrl(selected.image_path).data.publicUrl} alt="Article cover" />}
+            <div className="article-reader-content">{selected.content}</div>
+            {selected.source_url && isSafeUrl(selected.source_url) && <a className="source-link" href={selected.source_url} target="_blank" rel="noreferrer">Source link</a>}
+          </article>
+        </div>
+      )}
+    </main>
   );
 }
 
@@ -1117,6 +1397,7 @@ function AdminPanel({ profile }) {
             </div>
             <select value={member.role} disabled={busyId === member.id} onChange={(e) => setRole(member.id, e.target.value)}>
               <option value="member">member</option>
+              <option value="editor">editor</option>
               <option value="moderator">moderator</option>
               <option value="admin">admin</option>
             </select>
@@ -2948,12 +3229,131 @@ function ProfileCard({ profile, setProfile }) {
   );
 }
 
+
+function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers }) {
+  const [articles, setArticles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [category, setCategory] = useState('all');
+  const [selected, setSelected] = useState(null);
+
+  const loadPublicArticles = useCallback(async () => {
+    let query = supabase
+      .from('posts')
+      .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
+      .eq('status', 'published')
+      .order('created_at', { ascending: false })
+      .limit(60);
+    if (category !== 'all') query = query.eq('category', category);
+    const { data } = await query;
+    setArticles(data || []);
+    setLoading(false);
+  }, [category]);
+
+  useEffect(() => {
+    loadPublicArticles();
+    const channel = supabase
+      .channel('public-editorial-feed')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, loadPublicArticles)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadPublicArticles)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [loadPublicArticles]);
+
+  const lead = articles[0];
+  const rest = articles.slice(1);
+
+  return (
+    <main className="public-site-shell">
+      <header className="public-topbar glass-card">
+        <div className="brand-lockup">
+          <BrandMark settings={settings} />
+          <div>
+            <strong>{settings.site_title || APP_NAME}</strong>
+            <small>{settings.header_tagline}</small>
+          </div>
+        </div>
+        <button className="primary-btn compact" type="button" onClick={onEnterMembers}>Editor / member login</button>
+      </header>
+
+      <section className="public-hero glass-card" style={{ '--hero-image': `url(${settings.hero_url || BRAND_HERO})` }}>
+        <span className="eyebrow">PORT24 EDITORIAL</span>
+        <h1>Άρθρα, γνώμες και νέα για όλο τον Ολυμπιακό.</h1>
+        <p>Διάβασε κείμενα από τους editors του Port24 ανά κατηγορία: μπάσκετ, ποδόσφαιρο, ερασιτέχνης, μεταγραφές, media και απόψεις.</p>
+        <div className="public-category-row">
+          {ARTICLE_CATEGORIES.map((item) => (
+            <button key={item.id} className={category === item.id ? 'active' : ''} type="button" onClick={() => setCategory(item.id)}>{item.label}</button>
+          ))}
+        </div>
+      </section>
+
+      {loading && <div className="glass-card loading-card">Loading articles…</div>}
+      {!loading && articles.length === 0 && <div className="glass-card loading-card">No articles have been published yet.</div>}
+
+      {lead && (
+        <section className="public-layout">
+          <article className="public-lead-card glass-card" onClick={() => setSelected(lead)} role="button" tabIndex={0}>
+            {lead.image_path && <img src={publicAssetUrl(BUCKET, lead.image_path)} alt="Article cover" />}
+            <div>
+              <span className="article-category-pill">{categoryLabel(lead.category)}</span>
+              <h2>{lead.title || lead.content.slice(0, 90)}</h2>
+              <p>{lead.excerpt || lead.content.slice(0, 220)}</p>
+              <small>By {displayUser(lead.profiles)} · {formatTime(lead.created_at)}</small>
+            </div>
+          </article>
+          <aside className="public-sidebar glass-card">
+            <span className="eyebrow">LATEST</span>
+            {articles.slice(0, 8).map((article, index) => (
+              <button className="public-latest-row" key={article.id} type="button" onClick={() => setSelected(article)}>
+                <b>{String(index + 1).padStart(2, '0')}</b>
+                <span>{article.title || article.content.slice(0, 80)}<small>{displayUser(article.profiles)} · {categoryLabel(article.category)}</small></span>
+              </button>
+            ))}
+          </aside>
+        </section>
+      )}
+
+      <section className="public-grid">
+        {rest.map((article) => (
+          <article className="public-article-card glass-card" key={article.id} onClick={() => setSelected(article)} role="button" tabIndex={0}>
+            {article.image_path && <img src={publicAssetUrl(BUCKET, article.image_path)} alt="Article cover" />}
+            <span className="article-category-pill">{categoryLabel(article.category)}</span>
+            <h3>{article.title || article.content.slice(0, 80)}</h3>
+            <p>{article.excerpt || article.content.slice(0, 160)}</p>
+            <small>By {displayUser(article.profiles)} · {formatTime(article.created_at)}</small>
+          </article>
+        ))}
+      </section>
+
+      {selected && (
+        <div className="modal-backdrop article-reader-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
+          <article className="article-reader glass-card">
+            <button className="ghost-btn compact article-close" type="button" onClick={() => setSelected(null)}>Close</button>
+            {selected.image_path && <img className="article-reader-cover" src={publicAssetUrl(BUCKET, selected.image_path)} alt="Article cover" />}
+            <span className="article-category-pill">{categoryLabel(selected.category)}</span>
+            <h1>{selected.title || 'Port24 article'}</h1>
+            <div className="article-byline">
+              <UserAvatar profile={selected.profiles} className="comment-avatar" />
+              <span>By <strong>{displayUser(selected.profiles)}</strong> · {formatTime(selected.created_at)}</span>
+            </div>
+            <p className="article-reader-body">{selected.content}</p>
+            {selected.source_url && isSafeUrl(selected.source_url) && <a className="source-link" href={selected.source_url} target="_blank" rel="noreferrer">Open source</a>}
+            {getYoutubeId(selected.video_url) && (
+              <div className="video-frame"><iframe title="YouTube video" src={`https://www.youtube-nocookie.com/embed/${getYoutubeId(selected.video_url)}`} allowFullScreen /></div>
+            )}
+          </article>
+        </div>
+      )}
+    </main>
+  );
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [siteSettings, setSiteSettings] = useState(DEFAULT_SITE_SETTINGS);
   const [view, setView] = useState('feed');
+  const [showMemberGate, setShowMemberGate] = useState(new URLSearchParams(window.location.search).has('invite'));
 
   const refreshSiteSettings = useCallback(async () => {
     const next = await loadSiteSettings();
@@ -2999,7 +3399,11 @@ function App() {
 
   if (!isConfigured()) return <SetupNotice settings={siteSettings} />;
   if (loading) return <main className="setup-shell"><div className="glass-card loading-card">Loading members area…</div></main>;
-  if (!session || !profile) return <InviteGate onProfileReady={setProfile} settings={siteSettings} session={session} />;
+  if (!session || !profile) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('invite') || params.has('login')) return <InviteGate onProfileReady={setProfile} settings={siteSettings} session={session} />;
+    return <PublicFrontPage settings={siteSettings} />;
+  }
 
   return (
     <Shell profile={profile} setProfile={setProfile} settings={siteSettings} view={view} setView={setView}>
