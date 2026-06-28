@@ -1425,6 +1425,32 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId }) {
         </button>
       </header>
 
+      <section className="public-hero port24-hero glass-card article-page-hero">
+        <div className="hero-copy">
+          <span className="eyebrow">PORT24</span>
+          <h1>Όλος ο Ολυμπιακός σε άρθρα, απόψεις και ρεπορτάζ με υπογραφή.</h1>
+          <p>Ποδόσφαιρο, μπάσκετ, Ερασιτέχνης, μεταγραφές, γνώμες και media από τους συντάκτες της κοινότητας.</p>
+        </div>
+        <div className="hero-stat-strip">
+          <span><b>{article ? '1' : '•'}</b> άρθρο</span>
+          <span><b>{ARTICLE_CATEGORIES.length - 1}</b> κατηγορίες</span>
+          <span><b>Live</b> updates</span>
+        </div>
+      </section>
+
+      <nav className="public-category-bar port24-category-bar glass-card article-page-category-bar" aria-label="Article categories">
+        {['all', ...ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => item.id)].map((item) => (
+          <button
+            key={item}
+            className={(article?.category === item || (!article?.category && item === 'all')) ? 'active' : ''}
+            type="button"
+            onClick={() => window.location.assign('/')}
+          >
+            <span>{item === 'all' ? 'Όλα' : categoryLabel(item)}</span>
+          </button>
+        ))}
+      </nav>
+
       {loading && <div className="glass-card loading-card article-page-loading">Loading article…</div>}
 
       {!loading && error && (
