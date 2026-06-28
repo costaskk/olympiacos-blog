@@ -683,6 +683,7 @@ function Composer({ profile, onCreated }) {
   const [image, setImage] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   if (!allowed) {
     return (
