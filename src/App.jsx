@@ -737,9 +737,8 @@ function Composer({ profile, onCreated }) {
 
       const { error: rpcError } = await supabase.rpc('publish_article', payload);
       if (rpcError) {
-        const { error: insertError } = await supabase.from('posts').insert({
+        const { error: insertError } = await supabase.from('articles').insert({
           author_id: profile.id,
-          kind: 'article',
           title: payload.article_title,
           category: payload.article_category,
           excerpt: payload.article_excerpt,
@@ -1251,9 +1250,9 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
 
   const loadArticles = useCallback(async () => {
     let query = supabase
-      .from('posts')
+      .from('articles')
       .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
-      .eq('status', 'published')
+      .or('status.eq.published,status.is.null')
       .order('created_at', { ascending: false })
       .limit(60);
     if (category !== 'all') query = query.eq('category', category);
@@ -1266,7 +1265,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
     loadArticles();
     const channel = supabase
       .channel('public-articles')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, loadArticles)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'articles' }, loadArticles)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadArticles)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -3329,9 +3328,9 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
 
   const loadPublicArticles = useCallback(async () => {
     let query = supabase
-      .from('posts')
+      .from('articles')
       .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
-      .eq('status', 'published')
+      .or('status.eq.published,status.is.null')
       .order('created_at', { ascending: false })
       .limit(60);
     if (category !== 'all') query = query.eq('category', category);
@@ -3344,7 +3343,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
     loadPublicArticles();
     const channel = supabase
       .channel('public-editorial-feed')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, loadPublicArticles)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'articles' }, loadPublicArticles)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadPublicArticles)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -3447,7 +3446,7 @@ function ArticleManager({ profile }) {
   const loadArticles = useCallback(async () => {
     setLoading(true);
     let query = supabase
-      .from('posts')
+      .from('articles')
       .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
       .order('created_at', { ascending: false })
       .limit(80);
@@ -3461,7 +3460,7 @@ function ArticleManager({ profile }) {
     loadArticles();
     const channel = supabase
       .channel('editor-article-manager')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, loadArticles)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'articles' }, loadArticles)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadArticles)
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -3471,7 +3470,7 @@ function ArticleManager({ profile }) {
     const target = deleteTarget;
     setDeleteTarget(null);
     if (!target?.id) return;
-    const { error } = await supabase.from('posts').delete().eq('id', target.id);
+    const { error } = await supabase.from('articles').delete().eq('id', target.id);
     if (error) alert(error.message);
     loadArticles();
   }

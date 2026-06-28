@@ -163,6 +163,59 @@ begin
   end if;
 end $$;
 
+
+-- Public editorial articles live in their own table. Older builds used public.posts for articles;
+-- this table keeps the public site/editor studio separate from member feed posts.
+create table if not exists public.articles (
+  id uuid primary key default extensions.gen_random_uuid(),
+  author_id uuid not null references public.profiles(id) on delete cascade,
+  title text not null,
+  category text not null default 'opinion' check (category in ('basketball', 'football', 'erasitexnhs', 'volleyball', 'transfers', 'opinion', 'media')),
+  excerpt text,
+  status text not null default 'published' check (status in ('draft', 'published')),
+  content text not null,
+  image_path text,
+  video_url text,
+  source_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint articles_title_len check (char_length(title) between 1 and 180),
+  constraint articles_excerpt_len check (excerpt is null or char_length(excerpt) <= 420),
+  constraint articles_content_len check (char_length(content) between 1 and 20000),
+  constraint articles_source_url_len check (source_url is null or char_length(source_url) <= 600),
+  constraint articles_video_url_len check (video_url is null or char_length(video_url) <= 600)
+);
+
+alter table public.articles add column if not exists author_id uuid references public.profiles(id) on delete cascade;
+alter table public.articles add column if not exists title text;
+alter table public.articles add column if not exists category text not null default 'opinion';
+alter table public.articles add column if not exists excerpt text;
+alter table public.articles add column if not exists status text not null default 'published';
+alter table public.articles add column if not exists content text;
+alter table public.articles add column if not exists image_path text;
+alter table public.articles add column if not exists video_url text;
+alter table public.articles add column if not exists source_url text;
+alter table public.articles add column if not exists created_at timestamptz not null default now();
+alter table public.articles add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'articles_author_id_fkey') then
+    alter table public.articles add constraint articles_author_id_fkey foreign key (author_id) references public.profiles(id) on delete cascade;
+  end if;
+exception when duplicate_object then null;
+end $$;
+
+update public.articles set status = 'published' where status is null;
+update public.articles set category = 'opinion' where category is null or category not in ('basketball', 'football', 'erasitexnhs', 'volleyball', 'transfers', 'opinion', 'media');
+
+-- One-time compatibility migration from the older posts-as-articles build.
+insert into public.articles (id, author_id, title, category, excerpt, status, content, image_path, video_url, source_url, created_at, updated_at)
+select id, author_id, coalesce(nullif(title, ''), left(regexp_replace(content, '\s+', ' ', 'g'), 120)), category, excerpt, status, content, image_path, video_url, source_url, created_at, updated_at
+from public.posts
+where kind = 'article'
+on conflict (id) do nothing;
+
 create table if not exists public.comments (
   id uuid primary key default extensions.gen_random_uuid(),
   post_id uuid not null references public.posts(id) on delete cascade,
@@ -247,6 +300,11 @@ create trigger posts_touch_updated_at
 before update on public.posts
 for each row execute function public.touch_updated_at();
 
+drop trigger if exists articles_touch_updated_at on public.articles;
+create trigger articles_touch_updated_at
+before update on public.articles
+for each row execute function public.touch_updated_at();
+
 
 drop trigger if exists chat_threads_touch_updated_at on public.chat_threads;
 create trigger chat_threads_touch_updated_at
@@ -311,6 +369,8 @@ as $$
 $$;
 
 
+drop function if exists public.publish_article(text, text, text, text, text, text, text);
+
 create or replace function public.publish_article(
   article_title text,
   article_category text,
@@ -320,14 +380,14 @@ create or replace function public.publish_article(
   article_video_url text default null,
   article_source_url text default null
 )
-returns public.posts
+returns public.articles
 language plpgsql
 security definer
 set search_path = public, extensions
 as $$
 declare
   cleaned_category text;
-  new_post public.posts%rowtype;
+  new_post public.articles%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -350,9 +410,8 @@ begin
     cleaned_category := 'opinion';
   end if;
 
-  insert into public.posts (
+  insert into public.articles (
     author_id,
-    kind,
     title,
     category,
     excerpt,
@@ -363,7 +422,6 @@ begin
     source_url
   ) values (
     auth.uid(),
-    'article',
     trim(article_title),
     cleaned_category,
     nullif(trim(coalesce(article_excerpt, '')), ''),
@@ -657,6 +715,7 @@ alter table public.profiles enable row level security;
 alter table public.invites enable row level security;
 alter table public.site_settings enable row level security;
 alter table public.posts enable row level security;
+alter table public.articles enable row level security;
 alter table public.comments enable row level security;
 alter table public.post_likes enable row level security;
 alter table public.encrypted_messages enable row level security;
@@ -731,6 +790,32 @@ drop policy if exists posts_delete_self_or_admin on public.posts;
 create policy posts_delete_self_or_admin on public.posts
 for delete to authenticated
 using (author_id = auth.uid() or public.is_staff());
+
+
+
+drop policy if exists articles_public_select_published on public.articles;
+create policy articles_public_select_published on public.articles
+for select to anon, authenticated
+using (status = 'published' or author_id = auth.uid() or public.is_staff());
+
+drop policy if exists articles_insert_writer on public.articles;
+create policy articles_insert_writer on public.articles
+for insert to authenticated
+with check (author_id = auth.uid() and public.can_publish_articles());
+
+drop policy if exists articles_update_writer_or_admin on public.articles;
+create policy articles_update_writer_or_admin on public.articles
+for update to authenticated
+using ((author_id = auth.uid() and public.can_publish_articles()) or public.is_staff())
+with check ((author_id = auth.uid() and public.can_publish_articles()) or public.is_staff());
+
+drop policy if exists articles_delete_writer_or_admin on public.articles;
+create policy articles_delete_writer_or_admin on public.articles
+for delete to authenticated
+using (author_id = auth.uid() or public.is_staff());
+
+grant select on public.articles to anon, authenticated;
+grant insert, update, delete on public.articles to authenticated;
 
 drop policy if exists comments_select_authenticated on public.comments;
 create policy comments_select_authenticated on public.comments
@@ -829,6 +914,7 @@ grant select, insert, delete on public.chat_messages to authenticated;
 alter table public.chat_messages replica identity full;
 alter table public.comments replica identity full;
 alter table public.posts replica identity full;
+alter table public.articles replica identity full;
 
 -- Realtime support for live feed, comments and the floating group messenger.
 -- Supabase Broadcast works without this, but Postgres changes need the tables in supabase_realtime.
@@ -841,6 +927,12 @@ begin
 
   begin
     alter publication supabase_realtime add table public.posts;
+  exception when duplicate_object or undefined_object then null;
+  end;
+
+
+  begin
+    alter publication supabase_realtime add table public.articles;
   exception when duplicate_object or undefined_object then null;
   end;
 

@@ -409,3 +409,8 @@ https://your-site.vercel.app/?login=1
 ```
 
 Vercel already rewrites all routes to the SPA through `vercel.json`, so `/editor` will load correctly after deployment.
+
+## v6.4 article visibility fix
+
+This build moves public editorial content to `public.articles` and keeps member/community posts in `public.posts`.
+Run the latest `supabase/schema.sql` after deploying. It creates/repairs the `articles` table, updates `publish_article()`, migrates old `posts.kind = 'article'` rows into `articles`, and enables public read policies/realtime for articles.
