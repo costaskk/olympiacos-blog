@@ -4682,3 +4682,22 @@ body {
     font-size: clamp(2.2rem, 13vw, 3.5rem);
   }
 }
+
+/* v6.7 editor access/logout polish */
+.gate-public-return {
+  display: flex;
+  justify-content: center;
+  margin: -0.2rem 0 0.2rem;
+}
+
+.gate-public-return .ghost-btn {
+  width: 100%;
+  justify-content: center;
+  border-color: rgba(255,255,255,0.14);
+  background: linear-gradient(135deg, rgba(255,255,255,0.08), rgba(209,0,25,0.08));
+}
+
+.confirm-modal:not(.danger) .modal-mark,
+.confirm-modal.neutral .modal-mark {
+  background: linear-gradient(135deg, rgba(255,255,255,0.18), rgba(209,0,25,0.85));
+}

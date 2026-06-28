@@ -144,14 +144,14 @@ function UserAvatar({ profile, name, color, className = '', title = '' }) {
 }
 
 
-function ConfirmModal({ open, title, body, confirmLabel = 'Confirm', cancelLabel = 'Cancel', tone = 'danger', onConfirm, onCancel }) {
+function ConfirmModal({ open, title, body, confirmLabel = 'Confirm', cancelLabel = 'Cancel', tone = 'danger', eyebrow = 'MODERATION ACTION', mark = '!', onConfirm, onCancel }) {
   if (!open) return null;
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel?.(); }}>
       <section className={`confirm-modal ${tone}`} role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
-        <div className="modal-mark" aria-hidden="true">!</div>
+        <div className="modal-mark" aria-hidden="true">{mark}</div>
         <div className="modal-copy">
-          <span className="eyebrow">MODERATION ACTION</span>
+          <span className="eyebrow">{eyebrow}</span>
           <h2 id="confirm-modal-title">{title}</h2>
           <p>{body}</p>
         </div>
@@ -345,69 +345,6 @@ function categoryLabel(category) {
   return ARTICLE_CATEGORIES.find((item) => item.id === category)?.label || 'Γενικά';
 }
 
-
-function stripGreekTonos(value = '') {
-  return String(value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .normalize('NFC');
-}
-
-function cleanUppercaseGreekTonos(root = document.body) {
-  if (!root || typeof window === 'undefined') return;
-  const hasGreekTone = /[ΆΈΉΊΌΎΏάέήίόύώΐΰ]/;
-  const lowerLetters = /[a-zα-ωάέήίόύώϊϋΐΰ]/;
-  const ignoredTags = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT']);
-
-  const shouldClean = (node) => {
-    const text = node.nodeValue || '';
-    if (!hasGreekTone.test(text)) return false;
-    const parent = node.parentElement;
-    if (!parent || ignoredTags.has(parent.tagName)) return false;
-    const transform = window.getComputedStyle(parent).textTransform;
-    if (transform === 'uppercase') return true;
-    const letters = text.replace(/[^A-Za-zΑ-ΩΆΈΉΊΌΎΏΪΫα-ωάέήίόύώϊϋΐΰ]/g, '');
-    return Boolean(letters) && !lowerLetters.test(letters);
-  };
-
-  const cleanNode = (node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      if (shouldClean(node)) node.nodeValue = stripGreekTonos(node.nodeValue);
-      return;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE || ignoredTags.has(node.tagName)) return;
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    const nodes = [];
-    while (walker.nextNode()) nodes.push(walker.currentNode);
-    nodes.forEach((textNode) => {
-      if (shouldClean(textNode)) textNode.nodeValue = stripGreekTonos(textNode.nodeValue);
-    });
-  };
-
-  cleanNode(root);
-}
-
-function useUppercaseGreekTonosCleaner() {
-  useEffect(() => {
-    if (typeof window === 'undefined' || !document.body) return undefined;
-    let timer = window.setTimeout(() => cleanUppercaseGreekTonos(), 0);
-    const observer = new MutationObserver((mutations) => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        mutations.forEach((mutation) => {
-          if (mutation.type === 'characterData') cleanUppercaseGreekTonos(mutation.target);
-          mutation.addedNodes.forEach((node) => cleanUppercaseGreekTonos(node));
-        });
-      }, 40);
-    });
-    observer.observe(document.body, { childList: true, characterData: true, subtree: true });
-    return () => {
-      window.clearTimeout(timer);
-      observer.disconnect();
-    };
-  }, []);
-}
-
 function BrandMark({ large = false, settings = DEFAULT_SITE_SETTINGS }) {
   const [assetIndex, setAssetIndex] = useState(0);
   const candidates = [settings?.logo_url, ...BRAND_LOGO_CANDIDATES].filter(Boolean);
@@ -570,6 +507,10 @@ function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS, session 
           <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError(''); setNotice(''); }}>Join with invite</button>
         </div>
 
+        <div className="gate-public-return">
+          <button type="button" className="ghost-btn compact" onClick={() => window.location.assign('/')}>← Back to public front page</button>
+        </div>
+
         {mode === 'login' ? (
           <form className="gate-form" onSubmit={login}>
             <h2>Login</h2>
@@ -676,6 +617,7 @@ function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS, session 
 
 function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, setView, children }) {
   const [safeShield, setSafeShield] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   useEffect(() => {
     const blur = () => setSafeShield(true);
@@ -692,14 +634,26 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
   }, []);
 
   async function signOut() {
-    const ok = window.confirm('Sign out? Accounts created with v5.4+ can log back in with handle and password. Older anonymous accounts may lose access.');
-    if (!ok) return;
     await supabase.auth.signOut();
+    setLogoutOpen(false);
     setProfile(null);
+    window.history.replaceState({}, '', '/');
   }
 
   return (
     <div className="app-shell" onContextMenu={(e) => e.preventDefault()}>
+      <ConfirmModal
+        open={logoutOpen}
+        eyebrow="ACCOUNT SESSION"
+        mark="↪"
+        tone="neutral"
+        title="Sign out of Port24?"
+        body="You will return to the public front page. You can log back in from the hidden editor page using your handle and password."
+        confirmLabel="Sign out"
+        cancelLabel="Stay logged in"
+        onCancel={() => setLogoutOpen(false)}
+        onConfirm={signOut}
+      />
       {safeShield && (
         <div className="privacy-shield">
           <div>
@@ -727,7 +681,7 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
               {view === 'admin-site' ? 'Blog' : 'Site settings'}
             </button>
           )}
-          <button type="button" className="ghost-btn compact" onClick={signOut}>Sign out</button>
+          <button type="button" className="ghost-btn compact" onClick={() => setLogoutOpen(true)}>Sign out</button>
         </div>
       </header>
       {children}
@@ -3721,7 +3675,6 @@ function EditorDashboard({ profile, setProfile, settings, setView }) {
 }
 
 function App() {
-  useUppercaseGreekTonosCleaner();
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
