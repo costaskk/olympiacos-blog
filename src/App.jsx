@@ -345,6 +345,69 @@ function categoryLabel(category) {
   return ARTICLE_CATEGORIES.find((item) => item.id === category)?.label || 'Γενικά';
 }
 
+
+function stripGreekTonos(value = '') {
+  return String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFC');
+}
+
+function cleanUppercaseGreekTonos(root = document.body) {
+  if (!root || typeof window === 'undefined') return;
+  const hasGreekTone = /[ΆΈΉΊΌΎΏάέήίόύώΐΰ]/;
+  const lowerLetters = /[a-zα-ωάέήίόύώϊϋΐΰ]/;
+  const ignoredTags = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT']);
+
+  const shouldClean = (node) => {
+    const text = node.nodeValue || '';
+    if (!hasGreekTone.test(text)) return false;
+    const parent = node.parentElement;
+    if (!parent || ignoredTags.has(parent.tagName)) return false;
+    const transform = window.getComputedStyle(parent).textTransform;
+    if (transform === 'uppercase') return true;
+    const letters = text.replace(/[^A-Za-zΑ-ΩΆΈΉΊΌΎΏΪΫα-ωάέήίόύώϊϋΐΰ]/g, '');
+    return Boolean(letters) && !lowerLetters.test(letters);
+  };
+
+  const cleanNode = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (shouldClean(node)) node.nodeValue = stripGreekTonos(node.nodeValue);
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE || ignoredTags.has(node.tagName)) return;
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach((textNode) => {
+      if (shouldClean(textNode)) textNode.nodeValue = stripGreekTonos(textNode.nodeValue);
+    });
+  };
+
+  cleanNode(root);
+}
+
+function useUppercaseGreekTonosCleaner() {
+  useEffect(() => {
+    if (typeof window === 'undefined' || !document.body) return undefined;
+    let timer = window.setTimeout(() => cleanUppercaseGreekTonos(), 0);
+    const observer = new MutationObserver((mutations) => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        mutations.forEach((mutation) => {
+          if (mutation.type === 'characterData') cleanUppercaseGreekTonos(mutation.target);
+          mutation.addedNodes.forEach((node) => cleanUppercaseGreekTonos(node));
+        });
+      }, 40);
+    });
+    observer.observe(document.body, { childList: true, characterData: true, subtree: true });
+    return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, []);
+}
+
 function BrandMark({ large = false, settings = DEFAULT_SITE_SETTINGS }) {
   const [assetIndex, setAssetIndex] = useState(0);
   const candidates = [settings?.logo_url, ...BRAND_LOGO_CANDIDATES].filter(Boolean);
@@ -3658,6 +3721,7 @@ function EditorDashboard({ profile, setProfile, settings, setView }) {
 }
 
 function App() {
+  useUppercaseGreekTonosCleaner();
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
