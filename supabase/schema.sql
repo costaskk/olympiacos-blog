@@ -233,12 +233,9 @@ end $$;
 update public.articles set status = 'published' where status is null;
 update public.articles set category = 'opinion' where category is null or category not in ('basketball', 'football', 'erasitexnhs', 'volleyball', 'transfers', 'opinion', 'media');
 
--- One-time compatibility migration from the older posts-as-articles build.
-insert into public.articles (id, author_id, title, category, excerpt, status, content, image_path, video_url, source_url, created_at, updated_at)
-select id, author_id, coalesce(nullif(title, ''), left(regexp_replace(content, '\s+', ' ', 'g'), 120)), category, excerpt, status, content, image_path, video_url, source_url, created_at, updated_at
-from public.posts
-where kind = 'article'
-on conflict (id) do nothing;
+-- Automatic migration from the old posts-as-articles build is intentionally disabled.
+-- It used to re-import deleted/old articles every time this schema was rerun.
+-- If you ever need a one-time legacy import, run it manually from a separate backup script.
 
 create table if not exists public.comments (
   id uuid primary key default extensions.gen_random_uuid(),

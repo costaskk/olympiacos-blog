@@ -1637,7 +1637,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
       </nav>
 
       {current && (
-        <section className="article-carousel glass-card carousel-title-on-image">
+        <section className="article-carousel glass-card carousel-title-on-image carousel-title-only">
           <button className="carousel-image" type="button" onClick={() => openArticle(current)} style={{ '--carousel-image': `url(${currentImage})` }} aria-label="Open featured article">
             <span className="article-category-pill">{categoryCaps(current.category)}</span>
             <span className="carousel-image-copy">
@@ -1646,8 +1646,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
               <small>{current.excerpt || String(current.content || '').replace(/\s+/g, ' ').slice(0, 180)}</small>
             </span>
           </button>
-          <div className="carousel-copy compact-carousel-copy">
-            <p>{current.excerpt || String(current.content || '').replace(/\s+/g, ' ').slice(0, 230)}</p>
+          <div className="carousel-meta-strip">
             <div className="carousel-byline">
               <UserAvatar profile={current.profiles} className="comment-avatar" />
               <span>Γράφει: <strong>{displayUser(current.profiles)}</strong><small>{formatTime(current.created_at)}</small></span>
@@ -3932,8 +3931,6 @@ function EditorDashboard({ profile, setProfile, settings, setView }) {
     canPublishArticles(profile?.role) && ['write', 'New article'],
     ['articles', 'Articles'],
     ['profile', 'Profile'],
-    profile?.role === 'admin' && ['users', 'Users'],
-    profile?.role === 'admin' && ['invites', 'Invites'],
   ].filter(Boolean);
 
   return (
@@ -3941,8 +3938,8 @@ function EditorDashboard({ profile, setProfile, settings, setView }) {
       <section className="editor-studio-hero glass-card">
         <div>
           <span className="eyebrow">PORT24 STUDIO</span>
-          <h1>Clean publishing panel</h1>
-          <p>Write articles, manage your posts, update your profile and handle admin tools from one simple area.</p>
+          <h1>Port24 publishing studio</h1>
+          <p>Write articles, preview them, manage published texts and update your writer profile.</p>
         </div>
         <div className="editor-quick-actions">
           <button className="ghost-btn" type="button" onClick={() => window.open('/', '_self')}>Public page</button>
@@ -3960,8 +3957,6 @@ function EditorDashboard({ profile, setProfile, settings, setView }) {
         {tab === 'write' && <Composer profile={profile} onCreated={() => setTab('articles')} />}
         {tab === 'articles' && <ArticleManager profile={profile} />}
         {tab === 'profile' && <ProfileCard profile={profile} setProfile={setProfile} />}
-        {tab === 'users' && profile?.role === 'admin' && <AdminPanel profile={profile} />}
-        {tab === 'invites' && profile?.role === 'admin' && <InvitePanel profile={profile} />}
       </section>
     </main>
   );
@@ -4047,19 +4042,8 @@ function App() {
       ) : editorMode ? (
         <EditorDashboard profile={profile} setProfile={setProfile} settings={siteSettings} setView={setView} />
       ) : (
-        <main className="dashboard two-column">
-          <section className="left-rail">
-            <ProfileCard profile={profile} setProfile={setProfile} />
-          </section>
-          <Feed profile={profile} settings={siteSettings} />
-          <section className="right-rail">
-            <section className="side-card glass-card chants-card">
-              <span className="eyebrow">PIRAEUS BOARD</span>
-              <h2>{siteSettings.community_title}</h2>
-              <p>{siteSettings.community_text}</p>
-              {profile?.role === 'admin' && <button className="ghost-btn compact" type="button" onClick={() => window.open('/editor', '_self')}>Admin studio</button>}
-            </section>
-          </section>
+        <main className="member-clean-home">
+          <PublicFrontPage settings={siteSettings} />
         </main>
       )}
       <ChatPanel profile={profile} />
