@@ -360,6 +360,127 @@ function categoryCaps(category) {
   return appCaps(categoryLabel(category));
 }
 
+
+function safeJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeParagraphs(value = '') {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function parseMediaLinks(value = '') {
+  return String(value || '')
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter(isSafeUrl)
+    .slice(0, 12);
+}
+
+function getSpotifyEmbedUrl(url = '') {
+  if (!isSafeUrl(url) || !/spotify\.com/i.test(url)) return '';
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    const typeIndex = parts.findIndex((part) => ['track', 'album', 'playlist', 'episode', 'show'].includes(part));
+    if (typeIndex === -1 || !parts[typeIndex + 1]) return '';
+    return `https://open.spotify.com/embed/${parts[typeIndex]}/${parts[typeIndex + 1]}`;
+  } catch {
+    return '';
+  }
+}
+
+function MediaEmbed({ url }) {
+  const youtubeId = getYoutubeId(url);
+  const spotifyUrl = getSpotifyEmbedUrl(url);
+  if (youtubeId) {
+    return <div className="video-frame"><iframe title="YouTube video" src={`https://www.youtube-nocookie.com/embed/${youtubeId}`} allowFullScreen /></div>;
+  }
+  if (spotifyUrl) {
+    return <div className="spotify-frame"><iframe title="Spotify embed" src={spotifyUrl} allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" /></div>;
+  }
+  if (isSafeUrl(url)) {
+    return <a className="source-link media-link-card" href={url} target="_blank" rel="noreferrer">Άνοιγμα media link</a>;
+  }
+  return null;
+}
+
+function ArticleMediaGallery({ images = [] }) {
+  const items = safeJsonArray(images).filter((item) => item?.path || item?.url);
+  if (!items.length) return null;
+  return (
+    <div className="article-media-gallery">
+      {items.map((item, index) => {
+        const src = item.url || publicAssetUrl(BUCKET, item.path);
+        return (
+          <figure key={`${src}-${index}`}>
+            <img src={src} alt={item.caption || `Article image ${index + 1}`} loading="lazy" />
+            {(item.caption || item.source_url) && (
+              <figcaption>
+                {item.caption && <span>{item.caption}</span>}
+                {item.source_url && isSafeUrl(item.source_url) && <a href={item.source_url} target="_blank" rel="noreferrer">πηγή εικόνας</a>}
+              </figcaption>
+            )}
+          </figure>
+        );
+      })}
+    </div>
+  );
+}
+
+function ArticleSources({ article }) {
+  const notes = String(article?.source_notes || '').trim();
+  const articleSource = article?.source_url;
+  const imageSource = article?.image_source_url;
+  if (!notes && !articleSource && !imageSource) return null;
+  return (
+    <div className="article-sources-box">
+      <strong>Πηγές / credits</strong>
+      {articleSource && isSafeUrl(articleSource) && <a href={articleSource} target="_blank" rel="noreferrer">Πηγή άρθρου</a>}
+      {imageSource && isSafeUrl(imageSource) && <a href={imageSource} target="_blank" rel="noreferrer">Πηγή κεντρικής εικόνας</a>}
+      {notes && <p>{notes}</p>}
+    </div>
+  );
+}
+
+function ArticlePreviewCard({ draft, profile }) {
+  const media = parseMediaLinks(draft.mediaLinks || draft.video_url || '');
+  const images = safeJsonArray(draft.extra_images);
+  const cover = draft.cover_preview || draft.image_url || '';
+  return (
+    <article className="article-page-card glass-card live-preview-card">
+      {cover && <img className="article-page-cover" src={cover} alt="Article cover preview" />}
+      <div className="article-page-content">
+        <span className="kind-pill">{categoryCaps(draft.category)}</span>
+        <h1>{draft.title || 'Τίτλος άρθρου'}</h1>
+        <div className="article-byline article-page-byline">
+          <UserAvatar profile={profile} className="comment-avatar" />
+          <span>Γράφει: <strong>{displayUser(profile)}</strong> · preview</span>
+        </div>
+        {draft.excerpt && <p className="article-page-excerpt">{draft.excerpt}</p>}
+        <div className="article-reader-content article-page-body">
+          {normalizeParagraphs(draft.content || 'Το κείμενο του άρθρου θα εμφανίζεται εδώ. Κάθε αλλαγή γραμμής γίνεται ξεχωριστή παράγραφος.').map((paragraph, index) => <p key={index}>{paragraph}</p>)}
+        </div>
+        <ArticleMediaGallery images={images} />
+        {media.map((url, index) => <MediaEmbed key={`${url}-${index}`} url={url} />)}
+        <ArticleSources article={draft} />
+      </div>
+    </article>
+  );
+}
+
 function BrandMark({ large = false, settings = DEFAULT_SITE_SETTINGS }) {
   const [assetIndex, setAssetIndex] = useState(0);
   const candidates = [settings?.logo_url, ...BRAND_LOGO_CANDIDATES].filter(Boolean);
@@ -710,12 +831,24 @@ function Composer({ profile, onCreated }) {
   const [category, setCategory] = useState('basketball');
   const [excerpt, setExcerpt] = useState('');
   const [content, setContent] = useState('');
-  const [videoUrl, setVideoUrl] = useState('');
+  const [mediaLinks, setMediaLinks] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
-  const [image, setImage] = useState(null);
+  const [sourceNotes, setSourceNotes] = useState('');
+  const [imageSourceUrl, setImageSourceUrl] = useState('');
+  const [coverImage, setCoverImage] = useState(null);
+  const [inlineImages, setInlineImages] = useState([]);
+  const [mainImageChoice, setMainImageChoice] = useState('cover');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  const coverPreview = useMemo(() => (coverImage ? URL.createObjectURL(coverImage) : ''), [coverImage]);
+  const inlinePreviews = useMemo(() => inlineImages.map((item) => ({ ...item, preview: URL.createObjectURL(item.file) })), [inlineImages]);
+
+  useEffect(() => () => {
+    if (coverPreview) URL.revokeObjectURL(coverPreview);
+    inlinePreviews.forEach((item) => item.preview && URL.revokeObjectURL(item.preview));
+  }, [coverPreview, inlinePreviews]);
 
   if (!allowed) {
     return (
@@ -725,6 +858,37 @@ function Composer({ profile, onCreated }) {
         <p>Μπορείς να διαβάζεις και να συμμετέχεις στην κοινότητα. Η δημοσίευση άρθρων ενεργοποιείται από τη διαχείριση.</p>
       </section>
     );
+  }
+
+  function updateInlineImage(index, patch) {
+    setInlineImages((items) => items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
+  }
+
+  function removeInlineImage(index) {
+    setInlineImages((items) => items.filter((_, itemIndex) => itemIndex !== index));
+    if (mainImageChoice === `inline-${index}`) setMainImageChoice(coverImage ? 'cover' : '');
+  }
+
+  function addInlineImages(files) {
+    const picked = Array.from(files || [])
+      .filter((file) => file.type.startsWith('image/'))
+      .slice(0, Math.max(0, 12 - inlineImages.length))
+      .map((file) => ({ file, caption: '', source_url: '' }));
+    if (picked.length) setInlineImages((items) => [...items, ...picked]);
+  }
+
+  async function uploadArticleImage(file) {
+    if (!file.type.startsWith('image/')) throw new Error('Only image uploads are allowed.');
+    if (file.size > 12 * 1024 * 1024) throw new Error('Each image must be under 12 MB.');
+    const safeName = file.name.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
+    const imagePath = `${profile.id}/${Date.now()}-${randomId()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage.from(BUCKET).upload(imagePath, file, {
+      cacheControl: '3600',
+      upsert: true,
+      contentType: file.type,
+    });
+    if (uploadError) throw new Error(`Image upload failed: ${uploadError.message}. Make sure the latest supabase/schema.sql has been run.`);
+    return imagePath;
   }
 
   async function submit(e) {
@@ -739,32 +903,48 @@ function Composer({ profile, onCreated }) {
       if (!canPublishArticles(profile?.role)) throw new Error('This account does not have writer access. Ask an admin to promote it to Writer.');
       if (!title.trim()) throw new Error('Add an article title.');
       if (!content.trim()) throw new Error('Write the article body first.');
-      if (sourceUrl.trim() && !isSafeUrl(sourceUrl.trim())) throw new Error('Source URL must start with http:// or https://');
-      if (videoUrl.trim() && !getYoutubeId(videoUrl.trim())) throw new Error('Use a valid YouTube link.');
+      if (sourceUrl.trim() && !isSafeUrl(sourceUrl.trim())) throw new Error('Article source URL must start with http:// or https://');
+      if (imageSourceUrl.trim() && !isSafeUrl(imageSourceUrl.trim())) throw new Error('Image source URL must start with http:// or https://');
+      const media = parseMediaLinks(mediaLinks);
+      if (mediaLinks.trim() && media.length === 0) throw new Error('Add valid YouTube/Spotify/media links, one per line.');
+      inlineImages.forEach((item, index) => {
+        if (item.source_url?.trim() && !isSafeUrl(item.source_url.trim())) throw new Error(`Inline image ${index + 1} source URL must start with http:// or https://`);
+      });
 
-      let imagePath = null;
-      if (image) {
-        if (!image.type.startsWith('image/')) throw new Error('Only image uploads are allowed.');
-        if (image.size > 10 * 1024 * 1024) throw new Error('Image must be under 10 MB.');
-        const safeName = image.name.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
-        imagePath = `${profile.id}/${Date.now()}-${randomId()}-${safeName}`;
-        const { error: uploadError } = await supabase.storage.from(BUCKET).upload(imagePath, image, {
-          cacheControl: '3600',
-          upsert: true,
-          contentType: image.type,
+      const uploadedInline = [];
+      for (const item of inlineImages) {
+        const path = await uploadArticleImage(item.file);
+        uploadedInline.push({
+          path,
+          caption: item.caption?.trim() || '',
+          source_url: item.source_url?.trim() || '',
         });
-        if (uploadError) throw new Error(`Image upload failed: ${uploadError.message}. Make sure the latest supabase/schema.sql has been run.`);
       }
 
-      const cleanExcerpt = excerpt.trim() || content.trim().replace(/\s+/g, ' ').slice(0, 180);
+      let uploadedCover = null;
+      if (coverImage) uploadedCover = await uploadArticleImage(coverImage);
+
+      let mainImagePath = uploadedCover;
+      if (mainImageChoice.startsWith('inline-')) {
+        const index = Number(mainImageChoice.replace('inline-', ''));
+        if (uploadedInline[index]?.path) mainImagePath = uploadedInline[index].path;
+      }
+      if (!mainImagePath && uploadedInline[0]?.path) mainImagePath = uploadedInline[0].path;
+
+      const cleanExcerpt = excerpt.trim() || content.trim().replace(/\s+/g, ' ').slice(0, 220);
+      const cleanedContent = content.trim().replace(/\r\n/g, '\n');
       const payload = {
         article_title: title.trim(),
         article_category: category,
         article_excerpt: cleanExcerpt,
-        article_content: content.trim(),
-        article_image_path: imagePath,
-        article_video_url: videoUrl.trim() || null,
+        article_content: cleanedContent,
+        article_image_path: mainImagePath,
+        article_video_url: media[0] || null,
         article_source_url: sourceUrl.trim() || null,
+        article_media_urls: media,
+        article_extra_images: uploadedInline,
+        article_image_source_url: imageSourceUrl.trim() || null,
+        article_source_notes: sourceNotes.trim() || null,
       };
 
       const { error: rpcError } = await supabase.rpc('publish_article', payload);
@@ -779,20 +959,28 @@ function Composer({ profile, onCreated }) {
           video_url: payload.article_video_url,
           source_url: payload.article_source_url,
           image_path: payload.article_image_path,
+          media_urls: payload.article_media_urls,
+          extra_images: payload.article_extra_images,
+          image_source_url: payload.article_image_source_url,
+          source_notes: payload.article_source_notes,
         });
-        if (insertError) throw new Error(`${insertError.message}. If this keeps happening, run the latest supabase/schema.sql in Supabase SQL Editor.`);
+        if (insertError) throw new Error(`${insertError.message}. Run the latest supabase/schema.sql in Supabase SQL Editor, then try again.`);
       }
 
       setTitle('');
       setCategory('basketball');
       setExcerpt('');
       setContent('');
-      setVideoUrl('');
+      setMediaLinks('');
       setSourceUrl('');
-      setImage(null);
+      setSourceNotes('');
+      setImageSourceUrl('');
+      setCoverImage(null);
+      setInlineImages([]);
+      setMainImageChoice('cover');
       setSuccess('Article published. It is now visible on the public front page.');
       onCreated?.();
-      setTimeout(() => setSuccess(''), 2500);
+      setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.message || 'Could not publish article');
     } finally {
@@ -800,51 +988,124 @@ function Composer({ profile, onCreated }) {
     }
   }
 
+  const previewDraft = {
+    title,
+    category,
+    excerpt,
+    content,
+    mediaLinks,
+    source_url: sourceUrl,
+    image_source_url: imageSourceUrl,
+    source_notes: sourceNotes,
+    cover_preview: mainImageChoice.startsWith('inline-') ? inlinePreviews[Number(mainImageChoice.replace('inline-', ''))]?.preview : coverPreview,
+    extra_images: inlinePreviews.map((item) => ({ url: item.preview, caption: item.caption, source_url: item.source_url })),
+  };
+
   return (
-    <form className="composer glass-card article-composer" onSubmit={submit}>
-      <div className="composer-head">
-        <div>
-          <span className="eyebrow">PORT24</span>
-          <h2>Publish article</h2>
+    <section className="studio-composer-shell">
+      <form className="composer glass-card article-composer pro-article-composer" onSubmit={submit}>
+        <div className="composer-head pro-composer-head">
+          <div>
+            <span className="eyebrow">PORT24 STUDIO</span>
+            <h2>New article</h2>
+            <p>Write long-form posts with a cover image, inline media, sources and live preview before publishing.</p>
+          </div>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            {ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
         </div>
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
-          {ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-        </select>
-      </div>
-      <label>
-        Article title
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Π.χ. Η επόμενη μέρα του Ολυμπιακού" maxLength={160} required />
-      </label>
-      <label>
-        Short intro / excerpt
-        <textarea value={excerpt} onChange={(e) => setExcerpt(e.target.value)} placeholder="A short summary for the front page…" rows={2} maxLength={360} />
-      </label>
-      <textarea
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        placeholder="Write the full article, column, report, match reaction or news analysis…"
-        rows={9}
-        maxLength={20000}
-      />
-      <div className="composer-grid">
-        <label className="upload-label">
-          <span>Cover image</span>
-          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setImage(e.target.files?.[0] || null)} />
-          <em>{image ? image.name : 'Upload PNG, JPG, WebP or GIF'}</em>
-        </label>
-        <label>
-          YouTube URL
-          <input value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} placeholder="https://youtu.be/..." />
-        </label>
-        <label>
-          Source/news URL
-          <input value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://..." />
-        </label>
-      </div>
-      {error && <div className="error-box">{error}</div>}
-      {success && <div className="success-box">{success}</div>}
-      <button className="primary-btn" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save article'}</button>
-    </form>
+
+        <div className="article-editor-grid">
+          <div className="article-editor-main">
+            <label>
+              Article title
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Π.χ. Η επόμενη μέρα του Ολυμπιακού" maxLength={180} required />
+            </label>
+            <label>
+              Short intro / excerpt
+              <textarea value={excerpt} onChange={(e) => setExcerpt(e.target.value)} placeholder="A short summary for the front page…" rows={3} maxLength={420} />
+            </label>
+            <label className="body-writer-label">
+              Full article body
+              <textarea
+                className="article-body-writer"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="Write the full article here. Every line break becomes a new paragraph on the site."
+                rows={26}
+                maxLength={100000}
+                required
+              />
+            </label>
+          </div>
+
+          <aside className="article-editor-side glass-card">
+            <span className="eyebrow">MEDIA</span>
+            <label className="upload-label pro-upload-label">
+              <span>Main/cover image</span>
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => { setCoverImage(e.target.files?.[0] || null); setMainImageChoice('cover'); }} />
+              <em>{coverImage ? coverImage.name : 'Upload the main article image'}</em>
+            </label>
+            <label>
+              Main image source / credit URL
+              <input value={imageSourceUrl} onChange={(e) => setImageSourceUrl(e.target.value)} placeholder="https://..." />
+            </label>
+
+            <div className="main-image-picker">
+              <strong>Main article image</strong>
+              {coverImage && <label><input type="radio" checked={mainImageChoice === 'cover'} onChange={() => setMainImageChoice('cover')} /> Use cover image</label>}
+              {inlinePreviews.map((item, index) => (
+                <label key={index}><input type="radio" checked={mainImageChoice === `inline-${index}`} onChange={() => setMainImageChoice(`inline-${index}`)} /> Use inline image {index + 1}</label>
+              ))}
+              {!coverImage && inlinePreviews.length === 0 && <small>No image uploaded yet.</small>}
+            </div>
+
+            <label className="upload-label pro-upload-label">
+              <span>Inline article images</span>
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(e) => addInlineImages(e.target.files)} />
+              <em>Add more images for the article body/gallery</em>
+            </label>
+            {inlinePreviews.length > 0 && (
+              <div className="inline-image-list">
+                {inlinePreviews.map((item, index) => (
+                  <div className="inline-image-editor" key={`${item.file.name}-${index}`}>
+                    <img src={item.preview} alt="Inline preview" />
+                    <input value={item.caption} onChange={(e) => updateInlineImage(index, { caption: e.target.value })} placeholder="Caption" />
+                    <input value={item.source_url} onChange={(e) => updateInlineImage(index, { source_url: e.target.value })} placeholder="Image source URL" />
+                    <button type="button" className="ghost-btn compact" onClick={() => removeInlineImage(index)}>Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <label>
+              YouTube / Spotify / media embeds
+              <textarea value={mediaLinks} onChange={(e) => setMediaLinks(e.target.value)} placeholder="One link per line. YouTube and Spotify embed automatically." rows={5} />
+            </label>
+            <label>
+              Article source URL
+              <input value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://..." />
+            </label>
+            <label>
+              Extra source notes / credits
+              <textarea value={sourceNotes} onChange={(e) => setSourceNotes(e.target.value)} placeholder="Optional credits, references, image notes…" rows={4} maxLength={2000} />
+            </label>
+          </aside>
+        </div>
+
+        {error && <div className="error-box">{error}</div>}
+        {success && <div className="success-box">{success}</div>}
+        <button className="primary-btn publish-btn" type="submit" disabled={busy}>{busy ? 'Publishing…' : 'Publish article'}</button>
+      </form>
+
+      <section className="live-preview-section">
+        <div className="preview-heading">
+          <span className="eyebrow">LIVE PREVIEW</span>
+          <h2>How it will appear</h2>
+        </div>
+        <ArticlePreviewCard draft={previewDraft} profile={profile} />
+      </section>
+    </section>
   );
 }
 
@@ -1353,15 +1614,16 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
       </nav>
 
       {current && (
-        <section className="article-carousel glass-card">
+        <section className="article-carousel glass-card carousel-title-on-image">
           <button className="carousel-image" type="button" onClick={() => openArticle(current)} style={{ '--carousel-image': `url(${currentImage})` }} aria-label="Open featured article">
             <span className="article-category-pill">{categoryCaps(current.category)}</span>
+            <span className="carousel-image-copy">
+              <span className="eyebrow">ΝΕΟ ΑΡΘΡΟ</span>
+              <strong>{current.title || editorialTitle(current.content)}</strong>
+              <small>{current.excerpt || String(current.content || '').replace(/\s+/g, ' ').slice(0, 180)}</small>
+            </span>
           </button>
-          <div className="carousel-copy">
-            <span className="eyebrow">ΝΕΟ ΑΡΘΡΟ</span>
-            <button type="button" className="carousel-title-button" onClick={() => openArticle(current)}>
-              <h2>{current.title || editorialTitle(current.content)}</h2>
-            </button>
+          <div className="carousel-copy compact-carousel-copy">
             <p>{current.excerpt || String(current.content || '').replace(/\s+/g, ' ').slice(0, 230)}</p>
             <div className="carousel-byline">
               <UserAvatar profile={current.profiles} className="comment-avatar" />
@@ -1511,14 +1773,15 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId }) {
             </div>
             {article.excerpt && <p className="article-page-excerpt">{article.excerpt}</p>}
             <div className="article-reader-content article-page-body">
-              {String(article.content || '').split(/\n{2,}/).map((paragraph, index) => (
+              {normalizeParagraphs(article.content).map((paragraph, index) => (
                 <p key={index}>{paragraph}</p>
               ))}
             </div>
-            {article.source_url && isSafeUrl(article.source_url) && <a className="source-link" href={article.source_url} target="_blank" rel="noreferrer">Πηγή</a>}
-            {getYoutubeId(article.video_url) && (
-              <div className="video-frame"><iframe title="YouTube video" src={`https://www.youtube-nocookie.com/embed/${getYoutubeId(article.video_url)}`} allowFullScreen /></div>
-            )}
+            <ArticleMediaGallery images={article.extra_images} />
+            {parseMediaLinks([article.video_url, ...safeJsonArray(article.media_urls)].filter(Boolean).join('\n')).map((url, index) => (
+              <MediaEmbed key={`${url}-${index}`} url={url} />
+            ))}
+            <ArticleSources article={article} />
           </div>
         </article>
       )}

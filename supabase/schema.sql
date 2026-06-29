@@ -123,6 +123,10 @@ create table if not exists public.posts (
   image_path text,
   video_url text,
   source_url text,
+  media_urls jsonb not null default '[]'::jsonb,
+  extra_images jsonb not null default '[]'::jsonb,
+  image_source_url text,
+  source_notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint posts_title_len check (title is null or char_length(title) between 1 and 180),
@@ -177,13 +181,19 @@ create table if not exists public.articles (
   image_path text,
   video_url text,
   source_url text,
+  media_urls jsonb not null default '[]'::jsonb,
+  extra_images jsonb not null default '[]'::jsonb,
+  image_source_url text,
+  source_notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint articles_title_len check (char_length(title) between 1 and 180),
   constraint articles_excerpt_len check (excerpt is null or char_length(excerpt) <= 420),
-  constraint articles_content_len check (char_length(content) between 1 and 20000),
+  constraint articles_content_len check (char_length(content) between 1 and 100000),
   constraint articles_source_url_len check (source_url is null or char_length(source_url) <= 600),
-  constraint articles_video_url_len check (video_url is null or char_length(video_url) <= 600)
+  constraint articles_video_url_len check (video_url is null or char_length(video_url) <= 600),
+  constraint articles_image_source_url_len check (image_source_url is null or char_length(image_source_url) <= 600),
+  constraint articles_source_notes_len check (source_notes is null or char_length(source_notes) <= 4000)
 );
 
 alter table public.articles add column if not exists author_id uuid references public.profiles(id) on delete cascade;
@@ -195,8 +205,22 @@ alter table public.articles add column if not exists content text;
 alter table public.articles add column if not exists image_path text;
 alter table public.articles add column if not exists video_url text;
 alter table public.articles add column if not exists source_url text;
+alter table public.articles add column if not exists media_urls jsonb not null default '[]'::jsonb;
+alter table public.articles add column if not exists extra_images jsonb not null default '[]'::jsonb;
+alter table public.articles add column if not exists image_source_url text;
+alter table public.articles add column if not exists source_notes text;
 alter table public.articles add column if not exists created_at timestamptz not null default now();
 alter table public.articles add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'articles_content_len') then
+    alter table public.articles drop constraint articles_content_len;
+  end if;
+  alter table public.articles add constraint articles_content_len check (char_length(content) between 1 and 100000);
+exception when duplicate_object then null;
+end $$;
+
 
 do $$
 begin
@@ -370,6 +394,7 @@ $$;
 
 
 drop function if exists public.publish_article(text, text, text, text, text, text, text);
+drop function if exists public.publish_article(text, text, text, text, text, text, text, jsonb, jsonb, text, text);
 
 create or replace function public.publish_article(
   article_title text,
@@ -378,7 +403,11 @@ create or replace function public.publish_article(
   article_content text,
   article_image_path text default null,
   article_video_url text default null,
-  article_source_url text default null
+  article_source_url text default null,
+  article_media_urls jsonb default '[]'::jsonb,
+  article_extra_images jsonb default '[]'::jsonb,
+  article_image_source_url text default null,
+  article_source_notes text default null
 )
 returns public.articles
 language plpgsql
@@ -419,7 +448,11 @@ begin
     content,
     image_path,
     video_url,
-    source_url
+    source_url,
+    media_urls,
+    extra_images,
+    image_source_url,
+    source_notes
   ) values (
     auth.uid(),
     trim(article_title),
@@ -429,14 +462,18 @@ begin
     trim(article_content),
     nullif(trim(coalesce(article_image_path, '')), ''),
     nullif(trim(coalesce(article_video_url, '')), ''),
-    nullif(trim(coalesce(article_source_url, '')), '')
+    nullif(trim(coalesce(article_source_url, '')), ''),
+    coalesce(article_media_urls, '[]'::jsonb),
+    coalesce(article_extra_images, '[]'::jsonb),
+    nullif(trim(coalesce(article_image_source_url, '')), ''),
+    nullif(trim(coalesce(article_source_notes, '')), '')
   ) returning * into new_post;
 
   return new_post;
 end;
 $$;
 
-grant execute on function public.publish_article(text, text, text, text, text, text, text) to authenticated;
+grant execute on function public.publish_article(text, text, text, text, text, text, text, jsonb, jsonb, text, text) to authenticated;
 
 -- Backwards-compatible name used by older policies.
 create or replace function public.can_publish_articles(check_user uuid default auth.uid())
