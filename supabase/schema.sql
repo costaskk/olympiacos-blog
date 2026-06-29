@@ -1215,3 +1215,54 @@ begin
   alter table public.posts add constraint posts_status_check check (status in ('draft', 'published'));
 exception when duplicate_object then null;
 end $$;
+
+-- v8.8 invite maintenance helpers
+create or replace function public.admin_clear_old_invites()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  deleted_count integer := 0;
+begin
+  if not public.is_full_admin(auth.uid()) then
+    raise exception 'Only admins can clear old invites';
+  end if;
+
+  delete from public.invites
+  where used_at is not null
+     or expires_at <= now();
+
+  get diagnostics deleted_count = row_count;
+  return deleted_count;
+end;
+$$;
+
+create or replace function public.admin_revoke_invite(invite_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_full_admin(auth.uid()) then
+    raise exception 'Only admins can revoke invites';
+  end if;
+
+  update public.invites
+  set expires_at = now()
+  where id = invite_id
+    and used_at is null;
+end;
+$$;
+
+revoke all on function public.admin_clear_old_invites() from public, anon;
+revoke all on function public.admin_revoke_invite(uuid) from public, anon;
+grant execute on function public.admin_clear_old_invites() to authenticated;
+grant execute on function public.admin_revoke_invite(uuid) to authenticated;
+
+drop policy if exists invites_admin_delete on public.invites;
+create policy invites_admin_delete on public.invites
+for delete to authenticated
+using (public.is_full_admin());

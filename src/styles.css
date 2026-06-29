@@ -6425,3 +6425,81 @@ button:active,
     grid-template-columns: 1fr;
   }
 }
+
+/* v8.8 password + invite management polish */
+.password-panel {
+  display: grid;
+  gap: .75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.password-change-form {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255,255,255,.045);
+  padding: .9rem;
+}
+
+.invite-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.mini-tabs {
+  display: flex;
+  gap: .45rem;
+  flex-wrap: wrap;
+}
+
+.mini-tabs button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255,255,255,.07);
+  padding: .55rem .85rem;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.mini-tabs button.active {
+  color: #fff;
+  border-color: rgba(255,255,255,.28);
+  background: rgba(209,0,25,.24);
+  box-shadow: 0 14px 28px rgba(209,0,25,.18);
+}
+
+.invite-list-head-actions,
+.invite-list-row-actions {
+  grid-template-columns: 110px 120px minmax(120px, 1fr) minmax(120px, 1fr) 90px;
+}
+
+.muted-inline {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.success-box {
+  border: 1px solid rgba(57, 217, 138, 0.35);
+  border-radius: 16px;
+  color: #d8ffe9;
+  background: rgba(57, 217, 138, 0.12);
+  padding: 0.85rem 1rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .invite-list-head-actions {
+    display: none;
+  }
+
+  .invite-list-row-actions {
+    grid-template-columns: 1fr;
+    gap: .35rem;
+  }
+}

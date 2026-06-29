@@ -2251,21 +2251,37 @@ function InvitePanel({ profile }) {
   const [busy, setBusy] = useState(false);
   const [daysValid, setDaysValid] = useState(30);
   const [inviteRole, setInviteRole] = useState('member');
+  const [inviteView, setInviteView] = useState('open');
+  const [inviteMessage, setInviteMessage] = useState('');
   const isAdmin = profile?.role === 'admin';
 
   const loadInvites = useCallback(async () => {
-    const { data } = await supabase
+    let query = supabase
       .from('invites')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(30);
+      .limit(inviteView === 'open' ? 100 : 60);
+
+    if (inviteView === 'open') {
+      query = query.is('used_at', null).gt('expires_at', new Date().toISOString());
+    } else {
+      query = query.or(`used_at.not.is.null,expires_at.lte.${new Date().toISOString()}`);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      setInviteMessage(error.message);
+      setInvites([]);
+      return;
+    }
     setInvites(data || []);
-  }, []);
+  }, [inviteView]);
 
   useEffect(() => { loadInvites(); }, [loadInvites]);
 
   async function createInvite() {
     setBusy(true);
+    setInviteMessage('');
     const requestedDays = Math.max(1, Math.min(Number(daysValid) || 30, 90));
     const rpcName = isAdmin ? 'admin_create_invite' : 'create_invite';
     const rpcArgs = isAdmin
@@ -2275,14 +2291,47 @@ function InvitePanel({ profile }) {
     const { data, error } = await supabase.rpc(rpcName, rpcArgs);
     setBusy(false);
     if (error) {
-      alert(error.message);
+      setInviteMessage(error.message);
       return;
     }
     const link = `${window.location.origin}/editor?invite=${data}`;
     setLastInvite(link);
+    setInviteView('open');
+    setInviteMessage('Invite created and copied.');
     await navigator.clipboard?.writeText(link).catch(() => null);
     loadInvites();
   }
+
+  async function clearOldInvites() {
+    if (!isAdmin) return;
+    if (!window.confirm('Delete all used and expired invites from the admin list? Active unused invites will stay.')) return;
+    setBusy(true);
+    setInviteMessage('');
+    const { data, error } = await supabase.rpc('admin_clear_old_invites');
+    setBusy(false);
+    if (error) {
+      setInviteMessage(error.message);
+      return;
+    }
+    setInviteMessage(`Deleted ${data || 0} old invite${Number(data || 0) === 1 ? '' : 's'}.`);
+    loadInvites();
+  }
+
+  async function revokeInvite(inviteId) {
+    if (!isAdmin || !inviteId) return;
+    setBusy(true);
+    setInviteMessage('');
+    const { error } = await supabase.rpc('admin_revoke_invite', { invite_id: inviteId });
+    setBusy(false);
+    if (error) {
+      setInviteMessage(error.message);
+      return;
+    }
+    setInviteMessage('Invite revoked.');
+    loadInvites();
+  }
+
+  const openCount = invites.filter((invite) => !invite.used_at && new Date(invite.expires_at).getTime() > Date.now()).length;
 
   return (
     <section className="invite-admin-page glass-card">
@@ -2290,7 +2339,7 @@ function InvitePanel({ profile }) {
         <div>
           <span className="eyebrow">INVITATIONS</span>
           <h2>Invitation codes</h2>
-          <p>Create one-use invite links for new members. Admins can also create writer/moderator/admin invites.</p>
+          <p>Create one-use invite links. The list now shows active unused invites by default, so old/used codes do not clutter the admin page.</p>
         </div>
         <button className="ghost-btn compact" type="button" onClick={loadInvites}>Refresh</button>
       </div>
@@ -2312,7 +2361,7 @@ function InvitePanel({ profile }) {
           <input type="number" min="1" max="90" value={daysValid} onChange={(e) => setDaysValid(e.target.value)} />
         </label>
         <button className="primary-btn" type="button" onClick={createInvite} disabled={busy}>
-          {busy ? 'Creating…' : 'Create invite'}
+          {busy ? 'Working…' : 'Create invite'}
         </button>
       </div>
 
@@ -2327,26 +2376,51 @@ function InvitePanel({ profile }) {
         </div>
       )}
 
+      {inviteMessage && <div className={inviteMessage.toLowerCase().includes('error') ? 'error-box' : 'success-box'}>{inviteMessage}</div>}
+
+      <div className="invite-toolbar">
+        <div className="studio-tabs mini-tabs">
+          <button type="button" className={inviteView === 'open' ? 'active' : ''} onClick={() => setInviteView('open')}>Unused invites</button>
+          <button type="button" className={inviteView === 'old' ? 'active' : ''} onClick={() => setInviteView('old')}>Used / expired</button>
+        </div>
+        {isAdmin && inviteView === 'old' && (
+          <button className="danger-btn compact" type="button" onClick={clearOldInvites} disabled={busy}>Delete old invites</button>
+        )}
+      </div>
+
       <div className="invite-list-table">
-        <div className="invite-list-head">
+        <div className="invite-list-head invite-list-head-actions">
           <span>Status</span>
           <span>Role</span>
           <span>Created</span>
           <span>Expires</span>
+          <span>Action</span>
         </div>
-        {invites.length === 0 && <p className="empty-text padded">No invites created yet.</p>}
-        {invites.map((invite) => (
-          <div className="invite-list-row" key={invite.id}>
-            <strong className={invite.used_at ? 'used' : 'open'}>{invite.used_at ? 'Used' : 'Open'}</strong>
-            <span>{roleBadge(invite.invite_role || 'member')}</span>
-            <span>{formatTime(invite.created_at)}</span>
-            <span>{formatTime(invite.expires_at)}</span>
-          </div>
-        ))}
+        {invites.length === 0 && <p className="empty-text padded">{inviteView === 'open' ? 'No unused invites right now.' : 'No used or expired invites in the list.'}</p>}
+        {invites.map((invite) => {
+          const isOpen = !invite.used_at && new Date(invite.expires_at).getTime() > Date.now();
+          return (
+            <div className="invite-list-row invite-list-row-actions" key={invite.id}>
+              <strong className={isOpen ? 'open' : 'used'}>{isOpen ? 'Unused' : invite.used_at ? 'Used' : 'Expired'}</strong>
+              <span>{roleBadge(invite.invite_role || 'member')}</span>
+              <span>{formatTime(invite.created_at)}</span>
+              <span>{formatTime(invite.expires_at)}</span>
+              <span>
+                {isAdmin && isOpen ? (
+                  <button className="ghost-btn compact" type="button" onClick={() => revokeInvite(invite.id)} disabled={busy}>Revoke</button>
+                ) : (
+                  <em className="muted-inline">—</em>
+                )}
+              </span>
+            </div>
+          );
+        })}
       </div>
+      {inviteView === 'open' && <p className="tiny-note">Showing {openCount} active one-use invite{openCount === 1 ? '' : 's'}. Used and expired invites are hidden unless you open the Used / expired view.</p>}
     </section>
   );
 }
+
 
 function AdminPanel({ profile }) {
   const [members, setMembers] = useState([]);
@@ -2413,6 +2487,12 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
   const [heroPreview, setHeroPreview] = useState('');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -4196,6 +4276,39 @@ function ProfileCard({ profile, setProfile }) {
     setProfile(data);
   }
 
+  async function changePassword(e) {
+    e.preventDefault();
+    setPasswordMessage('');
+    if (newPassword.length < 6) {
+      setPasswordMessage('New password must be at least 6 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage('The new password fields do not match.');
+      return;
+    }
+    setPasswordBusy(true);
+    try {
+      if (currentPassword) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: memberLoginEmail(profile.handle),
+          password: currentPassword,
+        });
+        if (signInError) throw new Error(friendlyAuthError(signInError));
+      }
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw new Error(friendlyAuthError(error));
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordMessage('Password changed. Use the new password next time you log in.');
+    } catch (err) {
+      setPasswordMessage(err.message || 'Password change failed.');
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
+
   const previewProfile = { ...profile, handle, display_name: displayName, chat_color: chatColor, avatar_url: avatarPreview || avatarUrl };
 
   return (
@@ -4242,6 +4355,31 @@ function ProfileCard({ profile, setProfile }) {
         </label>
         <button className="ghost-btn" type="submit">{saved ? 'Saved' : 'Save profile'}</button>
       </form>
+
+      <div className="password-panel">
+        <button className="ghost-btn compact" type="button" onClick={() => { setPasswordOpen(!passwordOpen); setPasswordMessage(''); }}>
+          {passwordOpen ? 'Close password change' : 'Change password'}
+        </button>
+        {passwordOpen && (
+          <form className="profile-form password-change-form" onSubmit={changePassword}>
+            <label>
+              Current password
+              <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" placeholder="Current password" />
+              <small className="tiny-note">Recommended for safety. Leave blank only if Supabase asks for a recent login.</small>
+            </label>
+            <label>
+              New password
+              <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={6} autoComplete="new-password" placeholder="At least 6 characters" required />
+            </label>
+            <label>
+              Confirm new password
+              <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={6} autoComplete="new-password" placeholder="Repeat new password" required />
+            </label>
+            {passwordMessage && <div className={passwordMessage.includes('changed') ? 'success-box' : 'error-box'}>{passwordMessage}</div>}
+            <button className="primary-btn" type="submit" disabled={passwordBusy}>{passwordBusy ? 'Changing…' : 'Save new password'}</button>
+          </form>
+        )}
+      </div>
     </aside>
   );
 }
