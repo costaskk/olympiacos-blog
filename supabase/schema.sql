@@ -618,6 +618,36 @@ begin
 end;
 $$;
 
+create or replace function public.admin_create_invite(invite_role text default 'member', days_valid integer default 30)
+returns text
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  raw_token text;
+  valid_days integer;
+  clean_role text;
+begin
+  if not public.is_full_admin(auth.uid()) then
+    raise exception 'Only admins can create role invites';
+  end if;
+
+  clean_role := lower(trim(coalesce(invite_role, 'member')));
+  if clean_role not in ('member', 'editor', 'moderator', 'admin') then
+    raise exception 'Invalid invite role';
+  end if;
+
+  valid_days := greatest(1, least(coalesce(days_valid, 30), 90));
+  raw_token := case when clean_role = 'admin' then 'founder-' else '' end || lower(encode(extensions.gen_random_bytes(24), 'hex'));
+
+  insert into public.invites (token_hash, invite_role, created_by, expires_at)
+  values (encode(extensions.digest(raw_token, 'sha256'), 'hex'), clean_role, auth.uid(), now() + make_interval(days => valid_days));
+
+  return raw_token;
+end;
+$$;
+
 create or replace function public.accept_invite(raw_token text, chosen_handle text, chosen_display_name text default null)
 returns public.profiles
 language plpgsql
@@ -762,10 +792,12 @@ $$;
 revoke all on function public.make_admin_invite(integer) from public, anon, authenticated;
 revoke all on function public.make_founder_invite() from public, anon, authenticated;
 revoke all on function public.create_invite(integer) from public, anon;
+revoke all on function public.admin_create_invite(text, integer) from public, anon;
 revoke all on function public.accept_invite(text, text, text) from public, anon;
 revoke all on function public.admin_set_user_role(uuid, text) from public, anon;
 revoke all on function public.create_chat_thread(text, uuid[]) from public, anon;
 grant execute on function public.create_invite(integer) to authenticated;
+grant execute on function public.admin_create_invite(text, integer) to authenticated;
 grant execute on function public.accept_invite(text, text, text) to authenticated;
 grant execute on function public.admin_set_user_role(uuid, text) to authenticated;
 grant execute on function public.can_publish_articles(uuid) to authenticated;

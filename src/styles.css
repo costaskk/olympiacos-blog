@@ -6300,3 +6300,109 @@ button:active,
     flex-direction: column;
   }
 }
+
+/* v8.6 admin invite studio */
+.invite-admin-page {
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1rem, 2.5vw, 1.4rem);
+}
+
+.studio-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.studio-section-head h2 {
+  margin: .35rem 0 .25rem;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+}
+
+.studio-section-head p {
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.55;
+}
+
+.invite-create-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(140px, .55fr) auto;
+  gap: .8rem;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.invite-result-large {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 22px;
+  padding: 1rem;
+  background: linear-gradient(135deg, rgba(209,0,25,.18), rgba(255,255,255,.055));
+}
+
+.invite-actions-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .6rem;
+  align-items: center;
+}
+
+.invite-list-table {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.invite-list-head,
+.invite-list-row {
+  display: grid;
+  grid-template-columns: .75fr .85fr 1fr 1fr;
+  gap: .7rem;
+  align-items: center;
+  padding: .75rem .9rem;
+}
+
+.invite-list-head {
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 950;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.invite-list-row {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .88rem;
+}
+
+.invite-list-row strong.open {
+  color: #d8ffe9;
+}
+
+.invite-list-row strong.used {
+  color: #ffd0d5;
+}
+
+@media (max-width: 760px) {
+  .studio-section-head,
+  .invite-actions-line {
+    flex-direction: column;
+  }
+
+  .invite-create-grid,
+  .invite-list-head,
+  .invite-list-row {
+    grid-template-columns: 1fr;
+  }
+
+  .invite-list-head {
+    display: none;
+  }
+}

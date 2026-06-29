@@ -2249,13 +2249,16 @@ function InvitePanel({ profile }) {
   const [invites, setInvites] = useState([]);
   const [lastInvite, setLastInvite] = useState('');
   const [busy, setBusy] = useState(false);
+  const [daysValid, setDaysValid] = useState(30);
+  const [inviteRole, setInviteRole] = useState('member');
+  const isAdmin = profile?.role === 'admin';
 
   const loadInvites = useCallback(async () => {
     const { data } = await supabase
       .from('invites')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(10);
+      .limit(30);
     setInvites(data || []);
   }, []);
 
@@ -2263,41 +2266,85 @@ function InvitePanel({ profile }) {
 
   async function createInvite() {
     setBusy(true);
-    const { data, error } = await supabase.rpc('create_invite', { days_valid: 30 });
+    const requestedDays = Math.max(1, Math.min(Number(daysValid) || 30, 90));
+    const rpcName = isAdmin ? 'admin_create_invite' : 'create_invite';
+    const rpcArgs = isAdmin
+      ? { invite_role: inviteRole, days_valid: requestedDays }
+      : { days_valid: requestedDays };
+
+    const { data, error } = await supabase.rpc(rpcName, rpcArgs);
     setBusy(false);
     if (error) {
       alert(error.message);
       return;
     }
-    const link = `${window.location.origin}${window.location.pathname}?invite=${data}`;
+    const link = `${window.location.origin}/editor?invite=${data}`;
     setLastInvite(link);
     await navigator.clipboard?.writeText(link).catch(() => null);
     loadInvites();
   }
 
   return (
-    <aside className="side-card glass-card">
-      <h2>Invite system</h2>
-      <p>Every invite is unique, one-use, and expires after 30 days. Invites created here are normal member invites.</p>
-      <button className="primary-btn full" type="button" onClick={createInvite} disabled={busy}>
-        {busy ? 'Creating…' : 'Create one-use invite'}
-      </button>
+    <section className="invite-admin-page glass-card">
+      <div className="studio-section-head">
+        <div>
+          <span className="eyebrow">INVITATIONS</span>
+          <h2>Invitation codes</h2>
+          <p>Create one-use invite links for new members. Admins can also create writer/moderator/admin invites.</p>
+        </div>
+        <button className="ghost-btn compact" type="button" onClick={loadInvites}>Refresh</button>
+      </div>
+
+      <div className="invite-create-grid">
+        {isAdmin && (
+          <label>
+            Invite role
+            <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>
+              <option value="member">Member / Reader</option>
+              <option value="editor">Writer / Editor</option>
+              <option value="moderator">Moderator</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+        )}
+        <label>
+          Valid for days
+          <input type="number" min="1" max="90" value={daysValid} onChange={(e) => setDaysValid(e.target.value)} />
+        </label>
+        <button className="primary-btn" type="button" onClick={createInvite} disabled={busy}>
+          {busy ? 'Creating…' : 'Create invite'}
+        </button>
+      </div>
+
       {lastInvite && (
-        <div className="invite-result">
-          <span>Copied invite link:</span>
-          <textarea readOnly value={lastInvite} rows={3} />
+        <div className="invite-result invite-result-large">
+          <span>Invite link copied:</span>
+          <textarea readOnly value={lastInvite} rows={3} onFocus={(e) => e.target.select()} />
+          <div className="invite-actions-line">
+            <button className="ghost-btn compact" type="button" onClick={() => navigator.clipboard?.writeText(lastInvite)}>Copy again</button>
+            <a className="source-link" href={lastInvite} target="_blank" rel="noreferrer">Open link</a>
+          </div>
         </div>
       )}
-      <div className="mini-list">
+
+      <div className="invite-list-table">
+        <div className="invite-list-head">
+          <span>Status</span>
+          <span>Role</span>
+          <span>Created</span>
+          <span>Expires</span>
+        </div>
+        {invites.length === 0 && <p className="empty-text padded">No invites created yet.</p>}
         {invites.map((invite) => (
-          <div key={invite.id}>
-            <strong>{invite.used_at ? 'Used' : 'Open'}</strong>
-            <span>{invite.invite_role || 'member'} · {formatTime(invite.created_at)}</span>
+          <div className="invite-list-row" key={invite.id}>
+            <strong className={invite.used_at ? 'used' : 'open'}>{invite.used_at ? 'Used' : 'Open'}</strong>
+            <span>{roleBadge(invite.invite_role || 'member')}</span>
+            <span>{formatTime(invite.created_at)}</span>
+            <span>{formatTime(invite.expires_at)}</span>
           </div>
         ))}
       </div>
-      {profile.role === 'admin' && <p className="tiny-note">Admin/founder invites are created from Supabase SQL only, so they are not accidentally generated by members.</p>}
-    </aside>
+    </section>
   );
 }
 
@@ -4400,6 +4447,7 @@ function EditorDashboard({ profile, setProfile, settings, setView }) {
     canPublishArticles(profile?.role) && ['write', editingArticle ? 'Editing' : 'New article'],
     ['articles', 'Articles'],
     ['profile', 'Profile'],
+    profile?.role === 'admin' && ['invites', 'Invites'],
   ].filter(Boolean);
 
   function startEdit(article) {
@@ -4437,6 +4485,7 @@ function EditorDashboard({ profile, setProfile, settings, setView }) {
         {tab === 'write' && <Composer key={editingArticle?.id || 'new'} profile={profile} editingArticle={editingArticle} onCancelEdit={() => clearEdit('articles')} onCreated={() => clearEdit('articles')} />}
         {tab === 'articles' && <ArticleManager profile={profile} onEdit={startEdit} />}
         {tab === 'profile' && <ProfileCard profile={profile} setProfile={setProfile} />}
+        {tab === 'invites' && profile?.role === 'admin' && <InvitePanel profile={profile} />}
       </section>
     </main>
   );
