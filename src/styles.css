@@ -6035,3 +6035,39 @@ button:active,
     flex-direction: row;
   }
 }
+
+
+/* v8.1 scheduled article live refresh and cover fallback polish */
+.countdown-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  margin-left: .35rem;
+  border: 1px solid rgba(255, 210, 122, .28);
+  border-radius: 999px;
+  color: #ffedc1;
+  background: rgba(255, 210, 122, .1);
+  padding: .18rem .48rem;
+  font-weight: 900;
+  font-size: .72rem;
+  white-space: nowrap;
+}
+.article-status-pill.scheduled {
+  border-color: rgba(255, 210, 122, .32);
+  background: rgba(255, 210, 122, .12);
+  color: #ffedc1;
+}
+.article-status-pill.published {
+  border-color: rgba(57, 217, 138, .28);
+  background: rgba(57, 217, 138, .1);
+  color: #d8ffe9;
+}
+.schedule-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem;
+}
+.article-page-cover[style*="display: none"] + .article-page-content {
+  border-top: 1px solid rgba(255,255,255,.08);
+}

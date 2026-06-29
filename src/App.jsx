@@ -95,6 +95,156 @@ function formatTime(value) {
   }).format(new Date(value));
 }
 
+
+
+const ATHENS_TZ = 'Europe/Athens';
+
+function getTimeZoneOffsetMs(date, timeZone = ATHENS_TZ) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second),
+  );
+  return asUtc - date.getTime();
+}
+
+function athensLocalInputToIso(value = '') {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const [, year, month, day, hour, minute] = match.map(Number);
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const offset = getTimeZoneOffsetMs(utcGuess, ATHENS_TZ);
+  return new Date(utcGuess.getTime() - offset).toISOString();
+}
+
+function isoToAthensLocalInput(value) {
+  if (!value) return defaultAthensScheduleInput(1);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return defaultAthensScheduleInput(1);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: ATHENS_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+function defaultAthensScheduleInput(hoursAhead = 1) {
+  return isoToAthensLocalInput(new Date(Date.now() + hoursAhead * 60 * 60 * 1000).toISOString());
+}
+
+function athensFormat(value) {
+  if (!value) return '';
+  return new Intl.DateTimeFormat('el-GR', {
+    timeZone: ATHENS_TZ,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+
+function articleStatus(article) {
+  const raw = String(article?.status || 'published').toLowerCase();
+  if (raw === 'hidden' || raw === 'draft') return raw;
+  if (!article?.published_at) return raw === 'scheduled' ? 'scheduled' : 'published';
+  const publishTime = new Date(article.published_at).getTime();
+  if (Number.isNaN(publishTime)) return raw === 'scheduled' ? 'scheduled' : 'published';
+  if (publishTime > Date.now()) return 'scheduled';
+  return raw === 'hidden' || raw === 'draft' ? raw : 'published';
+}
+
+function articleIsPublic(article) {
+  if (!article) return false;
+  return articleStatus(article) === 'published';
+}
+
+function articleStatusLabel(article) {
+  const status = articleStatus(article);
+  if (status === 'scheduled') return 'Scheduled';
+  if (status === 'hidden') return 'Hidden';
+  if (status === 'draft') return 'Draft';
+  return 'Published';
+}
+
+function timeUntilLabel(value) {
+  const diff = new Date(value).getTime() - Date.now();
+  if (!value || Number.isNaN(diff)) return '';
+  if (diff <= 0) return 'public now';
+  const totalSeconds = Math.ceil(diff / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function PublishCountdown({ value, onDone }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!value) return undefined;
+    const diff = new Date(value).getTime() - now;
+    if (diff <= 0) onDone?.();
+    return undefined;
+  }, [now, onDone, value]);
+  return <span className="countdown-chip">Public in {timeUntilLabel(value)}</span>;
+}
+
+function firstInlineImageUrl(article) {
+  const images = safeJsonArray(article?.extra_images);
+  const first = images.find((item) => item?.url || item?.path);
+  if (!first) return '';
+  return first.url || first.path || '';
+}
+
+function articleCoverUrl(article, fallback = '') {
+  const raw = article?.image_path || article?.image_url || firstInlineImageUrl(article) || '';
+  if (!raw) return fallback || '';
+  if (typeof raw === 'object') return articleCoverUrl({ image_path: raw.url || raw.path }, fallback);
+  const value = String(raw).trim();
+  if (!value || value === 'null' || value === 'undefined') return fallback || '';
+  if (/^(https?:|blob:|data:)/i.test(value)) return value;
+  return publicAssetUrl(BUCKET, value);
+}
+
+function nextScheduledTimeFromArticles(items = []) {
+  const now = Date.now();
+  const times = items
+    .filter((article) => String(article?.status || '').toLowerCase() === 'scheduled')
+    .map((article) => new Date(article.published_at).getTime())
+    .filter((time) => Number.isFinite(time) && time > now)
+    .sort((a, b) => a - b);
+  return times[0] || null;
+}
+
 function randomId() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -424,115 +574,6 @@ function categoryCaps(category) {
 }
 
 
-
-function getAthensParts(value = new Date()) {
-  const date = value instanceof Date ? value : new Date(value);
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Athens',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(date).reduce((acc, part) => {
-    if (part.type !== 'literal') acc[part.type] = part.value;
-    return acc;
-  }, {});
-  return parts;
-}
-
-function athensFormat(value) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('el-GR', {
-    timeZone: 'Europe/Athens',
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date);
-}
-
-function isoToAthensLocalInput(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return defaultAthensScheduleInput(1);
-  const parts = getAthensParts(date);
-  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
-}
-
-function getAthensOffsetMinutes(date) {
-  try {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Europe/Athens',
-      timeZoneName: 'shortOffset',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    const tz = formatter.formatToParts(date).find((part) => part.type === 'timeZoneName')?.value || 'GMT+2';
-    const match = tz.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
-    if (!match) return 120;
-    const sign = match[1] === '-' ? -1 : 1;
-    const hours = Number(match[2] || 0);
-    const minutes = Number(match[3] || 0);
-    return sign * (hours * 60 + minutes);
-  } catch {
-    return 120;
-  }
-}
-
-function athensLocalInputToIso(value) {
-  if (!value) return null;
-  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
-  if (!match) return null;
-  const [, y, m, d, h, min] = match.map(Number);
-  const utcGuess = new Date(Date.UTC(y, m - 1, d, h, min, 0));
-  const offset = getAthensOffsetMinutes(utcGuess);
-  return new Date(Date.UTC(y, m - 1, d, h, min, 0) - offset * 60000).toISOString();
-}
-
-function defaultAthensScheduleInput(hoursAhead = 1) {
-  return isoToAthensLocalInput(new Date(Date.now() + Number(hoursAhead || 1) * 60 * 60 * 1000));
-}
-
-function articleStatus(article) {
-  if (!article) return 'published';
-  const raw = String(article.status || 'published').toLowerCase();
-  if (raw === 'hidden' || raw === 'draft') return 'hidden';
-  if (raw === 'scheduled') {
-    const date = article.published_at ? new Date(article.published_at) : null;
-    if (date && !Number.isNaN(date.getTime()) && date.getTime() > Date.now()) return 'scheduled';
-    return 'published';
-  }
-  const date = article.published_at ? new Date(article.published_at) : null;
-  if (date && !Number.isNaN(date.getTime()) && date.getTime() > Date.now()) return 'scheduled';
-  return 'published';
-}
-
-function articleStatusLabel(article) {
-  const status = articleStatus(article);
-  if (status === 'scheduled') return 'Scheduled';
-  if (status === 'hidden') return 'Hidden';
-  return 'Published';
-}
-
-function PublishCountdown({ value }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const target = value ? new Date(value).getTime() : 0;
-  if (!target || Number.isNaN(target) || target <= now) return <span>public now</span>;
-  const diff = Math.max(0, target - now);
-  const days = Math.floor(diff / 86400000);
-  const hours = Math.floor((diff % 86400000) / 3600000);
-  const minutes = Math.floor((diff % 3600000) / 60000);
-  const seconds = Math.floor((diff % 60000) / 1000);
-  const text = days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m ${seconds}s`;
-  return <span>{text}</span>;
-}
-
 function safeJsonArray(value) {
   if (Array.isArray(value)) return value;
   if (!value) return [];
@@ -678,7 +719,7 @@ function ArticlePreviewCard({ draft, profile }) {
   const cover = draft.cover_preview || draft.image_url || '';
   return (
     <article className="article-page-card glass-card live-preview-card">
-      {cover && <img className="article-page-cover image-fade-in" src={cover} alt="Article cover preview" loading="eager" decoding="async" />}
+      {cover && <img className="article-page-cover image-fade-in" src={cover} alt="Article cover preview" loading="eager" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
       <div className="article-page-content">
         <span className="kind-pill">{categoryCaps(draft.category)}</span>
         <h1>{draft.title || 'Τίτλος άρθρου'}</h1>
@@ -1552,7 +1593,7 @@ function PostCard({ post, profile, onChanged }) {
       {post.excerpt && <p className="article-excerpt">{post.excerpt}</p>}
       <p className="post-content">{post.content}</p>
 
-      {imageUrl && <img className="post-image image-fade-in" src={imageUrl} alt="Post upload" loading="lazy" decoding="async" />}
+      {imageUrl && <img className="post-image image-fade-in" src={imageUrl} alt="Post upload" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
 
       {youtubeId && (
         <div className="video-frame">
@@ -1859,10 +1900,10 @@ function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
 
 function PublicArticleCard({ post, onOpen }) {
   const author = post.profiles;
-  const imageUrl = post.image_path ? supabase.storage.from(BUCKET).getPublicUrl(post.image_path).data.publicUrl : '';
+  const imageUrl = articleCoverUrl(post, '');
   return (
     <article className="public-article-card glass-card" onClick={() => onOpen?.(post)} role="button" tabIndex={0}>
-      {imageUrl && <img src={imageUrl} alt="Article cover" loading="lazy" decoding="async" />}
+      {imageUrl && <img src={imageUrl} alt="Article cover" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
       <div className="public-article-body">
         <span className="kind-pill">{categoryCaps(post.category)}</span>
         <h2>{post.title || editorialTitle(post.content)}</h2>
@@ -1877,23 +1918,36 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
   const [articles, setArticles] = useState([]);
   const [category, setCategory] = useState('all');
   const [activeSlide, setActiveSlide] = useState(0);
+  const [nextScheduledPublicAt, setNextScheduledPublicAt] = useState(null);
   const openArticle = useCallback((article) => {
     if (!article?.id) return;
     navigateTo(`/article/${article.id}`);
   }, []);
 
   const loadArticles = useCallback(async () => {
+    const nowIso = new Date().toISOString();
     let query = supabase
       .from('articles')
       .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
       .in('status', ['published', 'scheduled'])
-      .lte('published_at', new Date().toISOString())
+      .lte('published_at', nowIso)
       .order('published_at', { ascending: false })
       .limit(60);
     if (category !== 'all') query = query.eq('category', category);
     const { data } = await query;
-    setArticles(data || []);
+    setArticles((data || []).filter(articleIsPublic));
     setActiveSlide(0);
+
+    let upcomingQuery = supabase
+      .from('articles')
+      .select('id,published_at,status,category')
+      .eq('status', 'scheduled')
+      .gt('published_at', nowIso)
+      .order('published_at', { ascending: true })
+      .limit(1);
+    if (category !== 'all') upcomingQuery = upcomingQuery.eq('category', category);
+    const { data: upcoming } = await upcomingQuery;
+    setNextScheduledPublicAt(upcoming?.[0]?.published_at || null);
   }, [category]);
 
   useEffect(() => {
@@ -1905,6 +1959,13 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [loadArticles]);
+
+  useEffect(() => {
+    if (!nextScheduledPublicAt) return undefined;
+    const delay = Math.max(500, new Date(nextScheduledPublicAt).getTime() - Date.now() + 1100);
+    const timer = window.setTimeout(loadArticles, delay);
+    return () => window.clearTimeout(timer);
+  }, [loadArticles, nextScheduledPublicAt]);
 
   const featured = articles.slice(0, 5);
   const current = featured[activeSlide] || articles[0] || null;
@@ -1918,12 +1979,12 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
     return () => window.clearInterval(timer);
   }, [featured.length]);
 
-  const currentImage = current?.image_path ? publicAssetUrl(BUCKET, current.image_path) : (settings.hero_url || BRAND_HERO);
+  const currentImage = articleCoverUrl(current, settings.hero_url || BRAND_HERO);
 
   useEffect(() => {
     preloadImage(currentImage);
     featured.slice(0, 3).forEach((item) => {
-      if (item?.image_path) preloadImage(publicAssetUrl(BUCKET, item.image_path));
+      if (articleCoverUrl(item)) preloadImage(articleCoverUrl(item));
     });
   }, [currentImage, featured]);
 
@@ -2020,6 +2081,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [retryAt, setRetryAt] = useState(null);
 
   const goHome = useCallback(() => {
     navigateTo('/');
@@ -2042,9 +2104,17 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
       setError(queryError.message || 'Δεν ήταν δυνατή η φόρτωση του άρθρου.');
       setArticle(null);
     } else if (!data || !articleIsPublic(data)) {
-      setError('Το άρθρο δεν βρέθηκε ή δεν είναι ακόμα διαθέσιμο.');
+      const status = articleStatus(data);
+      if (status === 'scheduled' && data?.published_at) {
+        setRetryAt(data.published_at);
+        setError(`Το άρθρο θα γίνει διαθέσιμο στις ${athensFormat(data.published_at)}.`);
+      } else {
+        setRetryAt(null);
+        setError('Το άρθρο δεν βρέθηκε ή δεν είναι ακόμα διαθέσιμο.');
+      }
       setArticle(null);
     } else {
+      setRetryAt(null);
       setArticle(data);
     }
     setLoading(false);
@@ -2059,6 +2129,13 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [articleId, loadArticle]);
+
+  useEffect(() => {
+    if (!retryAt) return undefined;
+    const delay = Math.max(500, new Date(retryAt).getTime() - Date.now() + 1100);
+    const timer = window.setTimeout(loadArticle, delay);
+    return () => window.clearTimeout(timer);
+  }, [loadArticle, retryAt]);
 
   return (
     <main className="public-site-shell port24-public-shell article-page-shell">
@@ -2113,7 +2190,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
 
       {!loading && article && (
         <article className="article-page-card glass-card">
-          {article.image_path && <img className="article-page-cover image-fade-in" src={publicAssetUrl(BUCKET, article.image_path)} alt="Article cover" loading="eager" decoding="async" fetchPriority="high" />}
+          {articleCoverUrl(article) && <img className="article-page-cover image-fade-in" src={articleCoverUrl(article)} alt="Article cover" loading="eager" decoding="async" fetchPriority="high" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
           <div className="article-page-content">
             <span className="kind-pill">{categoryCaps(article.category)}</span>
             <h1>{article.title || editorialTitle(article.content)}</h1>
@@ -4065,7 +4142,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
     let query = supabase
       .from('articles')
       .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
-      .in('status', ['published', 'scheduled'])
+      .eq('status', 'published')
       .lte('published_at', new Date().toISOString())
       .order('published_at', { ascending: false })
       .limit(60);
@@ -4118,7 +4195,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
       {lead && (
         <section className="public-layout">
           <article className="public-lead-card glass-card" onClick={() => setSelected(lead)} role="button" tabIndex={0}>
-            {lead.image_path && <img src={publicAssetUrl(BUCKET, lead.image_path)} alt="Article cover" loading="eager" decoding="async" fetchPriority="high" />}
+            {articleCoverUrl(lead) && <img src={articleCoverUrl(lead)} alt="Article cover" loading="eager" decoding="async" fetchPriority="high" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
             <div>
               <span className="article-category-pill">{categoryCaps(lead.category)}</span>
               <h2>{lead.title || lead.content.slice(0, 90)}</h2>
@@ -4141,7 +4218,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
       <section className="public-grid">
         {rest.map((article) => (
           <article className="public-article-card glass-card" key={article.id} onClick={() => setSelected(article)} role="button" tabIndex={0}>
-            {article.image_path && <img src={publicAssetUrl(BUCKET, article.image_path)} alt="Article cover" loading="lazy" decoding="async" />}
+            {articleCoverUrl(article) && <img src={articleCoverUrl(article)} alt="Article cover" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
             <span className="article-category-pill">{categoryCaps(article.category)}</span>
             <h3>{article.title || article.content.slice(0, 80)}</h3>
             <p>{article.excerpt || article.content.slice(0, 160)}</p>
@@ -4154,7 +4231,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
         <div className="modal-backdrop article-reader-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
           <article className="article-reader glass-card">
             <button className="ghost-btn compact article-close" type="button" onClick={() => setSelected(null)}>Close</button>
-            {selected.image_path && <img className="article-reader-cover" src={publicAssetUrl(BUCKET, selected.image_path)} alt="Article cover" loading="eager" decoding="async" />}
+            {articleCoverUrl(selected) && <img className="article-reader-cover" src={articleCoverUrl(selected)} alt="Article cover" loading="eager" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
             <span className="article-category-pill">{categoryCaps(selected.category)}</span>
             <h1>{selected.title || 'Thrylos United article'}</h1>
             <div className="article-byline">
@@ -4178,6 +4255,7 @@ function ArticleManager({ profile, onEdit }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [clockTick, setClockTick] = useState(Date.now());
 
   const loadArticles = useCallback(async () => {
     setLoading(true);
@@ -4201,6 +4279,18 @@ function ArticleManager({ profile, onEdit }) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [loadArticles]);
+
+  useEffect(() => {
+    const pulse = window.setInterval(() => setClockTick(Date.now()), 1000);
+    return () => window.clearInterval(pulse);
+  }, []);
+
+  useEffect(() => {
+    const nextTime = nextScheduledTimeFromArticles(articles);
+    if (!nextTime) return undefined;
+    const timer = window.setTimeout(loadArticles, Math.max(500, nextTime - Date.now() + 1100));
+    return () => window.clearTimeout(timer);
+  }, [articles, loadArticles]);
 
   async function confirmDelete() {
     const target = deleteTarget;
@@ -4233,8 +4323,9 @@ function ArticleManager({ profile, onEdit }) {
       {!loading && articles.length === 0 && <p className="empty-text">No articles yet.</p>}
       <div className="editor-article-list enhanced-article-list">
         {articles.map((article) => {
+          void clockTick;
           const status = articleStatus(article);
-          const imageSrc = article.image_path ? publicAssetUrl(BUCKET, article.image_path) : '';
+          const imageSrc = articleCoverUrl(article, '');
           const canManage = article.author_id === profile.id || profile.role === 'admin';
           return (
             <article key={article.id} className={`editor-article-row article-status-${status}`}>
@@ -4245,7 +4336,7 @@ function ArticleManager({ profile, onEdit }) {
                   <span className={`article-status-pill ${status}`}>{articleStatusLabel(article)}</span>
                 </div>
                 <small>{categoryLabel(article.category)} · {displayUser(article.profiles)} · Created {formatTime(article.published_at || article.created_at)}</small>
-                {status === 'scheduled' && <small className="schedule-line">Athens publish time: {athensFormat(article.published_at)} · <PublishCountdown value={article.published_at} /></small>}
+                {status === 'scheduled' && <small className="schedule-line">Athens publish time: {athensFormat(article.published_at)} · <PublishCountdown value={article.published_at} onDone={loadArticles} /></small>}
                 {status === 'hidden' && <small className="schedule-line">Hidden from public pages. Use Edit to publish or schedule it.</small>}
                 <p>{article.excerpt || String(article.content || '').slice(0, 180)}</p>
                 <details className="editor-mini-preview">
