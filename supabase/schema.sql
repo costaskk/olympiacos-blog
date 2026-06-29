@@ -118,7 +118,8 @@ create table if not exists public.posts (
   title text,
   category text not null default 'opinion' check (category in ('basketball', 'football', 'erasitexnhs', 'volleyball', 'transfers', 'opinion', 'media')),
   excerpt text,
-  status text not null default 'published' check (status in ('draft', 'published')),
+  status text not null default 'published' check (status in ('draft', 'hidden', 'scheduled', 'published')),
+  published_at timestamptz not null default now(),
   content text not null,
   image_path text,
   video_url text,
@@ -176,7 +177,8 @@ create table if not exists public.articles (
   title text not null,
   category text not null default 'opinion' check (category in ('basketball', 'football', 'erasitexnhs', 'volleyball', 'transfers', 'opinion', 'media')),
   excerpt text,
-  status text not null default 'published' check (status in ('draft', 'published')),
+  status text not null default 'published' check (status in ('draft', 'hidden', 'scheduled', 'published')),
+  published_at timestamptz not null default now(),
   content text not null,
   image_path text,
   video_url text,
@@ -201,6 +203,7 @@ alter table public.articles add column if not exists title text;
 alter table public.articles add column if not exists category text not null default 'opinion';
 alter table public.articles add column if not exists excerpt text;
 alter table public.articles add column if not exists status text not null default 'published';
+alter table public.articles add column if not exists published_at timestamptz not null default now();
 alter table public.articles add column if not exists content text;
 alter table public.articles add column if not exists image_path text;
 alter table public.articles add column if not exists video_url text;
@@ -230,12 +233,25 @@ begin
 exception when duplicate_object then null;
 end $$;
 
-update public.articles set status = 'published' where status is null;
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'articles_status_check') then
+    alter table public.articles drop constraint articles_status_check;
+  end if;
+  alter table public.articles add constraint articles_status_check check (status in ('draft', 'hidden', 'scheduled', 'published'));
+exception when duplicate_object then null;
+end $$;
+
+update public.articles set status = 'published' where status is null or status not in ('draft', 'hidden', 'scheduled', 'published');
+update public.articles set published_at = coalesce(published_at, created_at, now()) where published_at is null;
 update public.articles set category = 'opinion' where category is null or category not in ('basketball', 'football', 'erasitexnhs', 'volleyball', 'transfers', 'opinion', 'media');
 
 -- Automatic migration from the old posts-as-articles build is intentionally disabled.
 -- It used to re-import deleted/old articles every time this schema was rerun.
 -- If you ever need a one-time legacy import, run it manually from a separate backup script.
+
+create index if not exists articles_public_feed_idx on public.articles (published_at desc) where status = 'published';
+create index if not exists articles_author_status_idx on public.articles (author_id, status, created_at desc);
 
 create table if not exists public.comments (
   id uuid primary key default extensions.gen_random_uuid(),
@@ -392,6 +408,7 @@ $$;
 
 drop function if exists public.publish_article(text, text, text, text, text, text, text);
 drop function if exists public.publish_article(text, text, text, text, text, text, text, jsonb, jsonb, text, text);
+drop function if exists public.publish_article(text, text, text, text, text, text, text, jsonb, jsonb, text, text, text, timestamptz);
 
 create or replace function public.publish_article(
   article_title text,
@@ -404,7 +421,9 @@ create or replace function public.publish_article(
   article_media_urls jsonb default '[]'::jsonb,
   article_extra_images jsonb default '[]'::jsonb,
   article_image_source_url text default null,
-  article_source_notes text default null
+  article_source_notes text default null,
+  article_status text default 'published',
+  article_published_at timestamptz default now()
 )
 returns public.articles
 language plpgsql
@@ -413,6 +432,7 @@ set search_path = public, extensions
 as $$
 declare
   cleaned_category text;
+  cleaned_status text;
   new_post public.articles%rowtype;
 begin
   if auth.uid() is null then
@@ -436,12 +456,18 @@ begin
     cleaned_category := 'opinion';
   end if;
 
+  cleaned_status := coalesce(nullif(trim(article_status), ''), 'published');
+  if cleaned_status not in ('draft', 'hidden', 'scheduled', 'published') then
+    cleaned_status := 'published';
+  end if;
+
   insert into public.articles (
     author_id,
     title,
     category,
     excerpt,
     status,
+    published_at,
     content,
     image_path,
     video_url,
@@ -455,7 +481,8 @@ begin
     trim(article_title),
     cleaned_category,
     nullif(trim(coalesce(article_excerpt, '')), ''),
-    'published',
+    cleaned_status,
+    case when cleaned_status in ('published', 'scheduled') then coalesce(article_published_at, now()) else now() end,
     trim(article_content),
     nullif(trim(coalesce(article_image_path, '')), ''),
     nullif(trim(coalesce(article_video_url, '')), ''),
@@ -470,7 +497,7 @@ begin
 end;
 $$;
 
-grant execute on function public.publish_article(text, text, text, text, text, text, text, jsonb, jsonb, text, text) to authenticated;
+grant execute on function public.publish_article(text, text, text, text, text, text, text, jsonb, jsonb, text, text, text, timestamptz) to authenticated;
 
 -- Backwards-compatible name used by older policies.
 create or replace function public.can_publish_articles(check_user uuid default auth.uid())
@@ -807,7 +834,7 @@ drop policy if exists posts_select_public_published on public.posts;
 drop policy if exists posts_public_select_published on public.posts;
 create policy posts_public_select_published on public.posts
 for select to anon, authenticated
-using (status = 'published' or author_id = auth.uid() or public.is_staff());
+using (status = 'published' or author_id = auth.uid() or public.is_full_admin());
 
 drop policy if exists posts_insert_self on public.posts;
 create policy posts_insert_self on public.posts
@@ -817,20 +844,20 @@ with check (author_id = auth.uid() and public.can_publish_articles());
 drop policy if exists posts_update_self_or_admin on public.posts;
 create policy posts_update_self_or_admin on public.posts
 for update to authenticated
-using ((author_id = auth.uid() and public.can_publish_articles()) or public.is_staff())
-with check ((author_id = auth.uid() and public.can_publish_articles()) or public.is_staff());
+using ((author_id = auth.uid() and public.can_publish_articles()) or public.is_full_admin())
+with check ((author_id = auth.uid() and public.can_publish_articles()) or public.is_full_admin());
 
 drop policy if exists posts_delete_self_or_admin on public.posts;
 create policy posts_delete_self_or_admin on public.posts
 for delete to authenticated
-using (author_id = auth.uid() or public.is_staff());
+using (author_id = auth.uid() or public.is_full_admin());
 
 
 
 drop policy if exists articles_public_select_published on public.articles;
 create policy articles_public_select_published on public.articles
 for select to anon, authenticated
-using (status = 'published' or author_id = auth.uid() or public.is_staff());
+using ((status = 'published' and published_at <= now()) or author_id = auth.uid() or public.is_full_admin());
 
 drop policy if exists articles_insert_writer on public.articles;
 create policy articles_insert_writer on public.articles
@@ -840,13 +867,13 @@ with check (author_id = auth.uid() and public.can_publish_articles());
 drop policy if exists articles_update_writer_or_admin on public.articles;
 create policy articles_update_writer_or_admin on public.articles
 for update to authenticated
-using ((author_id = auth.uid() and public.can_publish_articles()) or public.is_staff())
-with check ((author_id = auth.uid() and public.can_publish_articles()) or public.is_staff());
+using ((author_id = auth.uid() and public.can_publish_articles()) or public.is_full_admin())
+with check ((author_id = auth.uid() and public.can_publish_articles()) or public.is_full_admin());
 
 drop policy if exists articles_delete_writer_or_admin on public.articles;
 create policy articles_delete_writer_or_admin on public.articles
 for delete to authenticated
-using (author_id = auth.uid() or public.is_staff());
+using (author_id = auth.uid() or public.is_full_admin());
 
 grant select on public.articles to anon, authenticated;
 grant insert, update, delete on public.articles to authenticated;
@@ -864,7 +891,7 @@ with check (author_id = auth.uid());
 drop policy if exists comments_delete_self_or_admin on public.comments;
 create policy comments_delete_self_or_admin on public.comments
 for delete to authenticated
-using (author_id = auth.uid() or public.is_staff());
+using (author_id = auth.uid() or public.is_full_admin());
 
 drop policy if exists likes_select_authenticated on public.post_likes;
 create policy likes_select_authenticated on public.post_likes

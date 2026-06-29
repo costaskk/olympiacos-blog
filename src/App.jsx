@@ -924,19 +924,30 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
   );
 }
 
-function Composer({ profile, onCreated }) {
+function Composer({ profile, onCreated, editingArticle = null, onCancelEdit }) {
   const allowed = canPublishArticles(profile?.role);
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('basketball');
-  const [excerpt, setExcerpt] = useState('');
-  const [content, setContent] = useState('');
-  const [mediaLinks, setMediaLinks] = useState('');
-  const [sourceUrl, setSourceUrl] = useState('');
-  const [sourceNotes, setSourceNotes] = useState('');
-  const [imageSourceUrl, setImageSourceUrl] = useState('');
+  const isEditing = Boolean(editingArticle?.id);
+  const canEditThis = isEditing ? (profile?.role === 'admin' || editingArticle.author_id === profile?.id) : allowed;
+  const [title, setTitle] = useState(editingArticle?.title || '');
+  const [category, setCategory] = useState(editingArticle?.category || 'basketball');
+  const [excerpt, setExcerpt] = useState(editingArticle?.excerpt || '');
+  const [content, setContent] = useState(editingArticle?.content || '');
+  const [mediaLinks, setMediaLinks] = useState([editingArticle?.video_url, ...safeJsonArray(editingArticle?.media_urls)].filter(Boolean).join('\n'));
+  const [sourceUrl, setSourceUrl] = useState(editingArticle?.source_url || '');
+  const [sourceNotes, setSourceNotes] = useState(editingArticle?.source_notes || '');
+  const [imageSourceUrl, setImageSourceUrl] = useState(editingArticle?.image_source_url || '');
   const [coverImage, setCoverImage] = useState(null);
+  const [existingCoverUrl, setExistingCoverUrl] = useState(editingArticle?.image_path || '');
+  const [existingInlineImages, setExistingInlineImages] = useState(safeJsonArray(editingArticle?.extra_images));
   const [inlineImages, setInlineImages] = useState([]);
-  const [mainImageChoice, setMainImageChoice] = useState('cover');
+  const [mainImageChoice, setMainImageChoice] = useState(editingArticle?.image_path ? 'existing-cover' : 'cover');
+  const [publishMode, setPublishMode] = useState(() => {
+    const status = articleStatus(editingArticle);
+    if (status === 'scheduled') return 'schedule';
+    if (status === 'hidden' || status === 'draft') return 'hidden';
+    return 'now';
+  });
+  const [scheduledAt, setScheduledAt] = useState(() => (editingArticle?.published_at ? isoToAthensLocalInput(editingArticle.published_at) : defaultAthensScheduleInput(1)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -949,7 +960,7 @@ function Composer({ profile, onCreated }) {
     inlinePreviews.forEach((item) => item.preview && URL.revokeObjectURL(item.preview));
   }, [coverPreview, inlinePreviews]);
 
-  if (!allowed) {
+  if (!allowed && !isEditing) {
     return (
       <section className="composer glass-card editor-locked-card">
         <span className="eyebrow">READING MODE</span>
@@ -959,19 +970,39 @@ function Composer({ profile, onCreated }) {
     );
   }
 
+  if (!canEditThis) {
+    return (
+      <section className="composer glass-card editor-locked-card">
+        <span className="eyebrow">NO ACCESS</span>
+        <h2>This article cannot be edited from this account.</h2>
+        <p>Editors can edit only their own articles. Admin can edit every article.</p>
+      </section>
+    );
+  }
+
   function updateInlineImage(index, patch) {
     setInlineImages((items) => items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
   }
 
+  function updateExistingInlineImage(index, patch) {
+    setExistingInlineImages((items) => items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
+  }
+
   function removeInlineImage(index) {
     setInlineImages((items) => items.filter((_, itemIndex) => itemIndex !== index));
-    if (mainImageChoice === `inline-${index}`) setMainImageChoice(coverImage ? 'cover' : '');
+    if (mainImageChoice === `inline-${index}`) setMainImageChoice(coverImage ? 'cover' : (existingCoverUrl ? 'existing-cover' : ''));
+  }
+
+  function removeExistingInlineImage(index) {
+    setExistingInlineImages((items) => items.filter((_, itemIndex) => itemIndex !== index));
+    if (mainImageChoice === `existing-inline-${index}`) setMainImageChoice(existingCoverUrl ? 'existing-cover' : (coverImage ? 'cover' : ''));
   }
 
   function addInlineImages(files) {
+    const maxLeft = 12 - inlineImages.length - existingInlineImages.length;
     const picked = Array.from(files || [])
       .filter((file) => file.type.startsWith('image/'))
-      .slice(0, Math.max(0, 12 - inlineImages.length))
+      .slice(0, Math.max(0, maxLeft))
       .map((file) => ({ file, caption: '', source_url: '', after_paragraph: Math.max(1, normalizeParagraphs(content).length || 1) }));
     if (picked.length) setInlineImages((items) => [...items, ...picked]);
   }
@@ -980,6 +1011,17 @@ function Composer({ profile, onCreated }) {
     if (!file.type.startsWith('image/')) throw new Error('Only image uploads are allowed.');
     if (file.size > 12 * 1024 * 1024) throw new Error('Each image must be under 12 MB.');
     return uploadImageFile(file, `articles/${profile.id}`);
+  }
+
+  function computePublishFields() {
+    if (publishMode === 'hidden') return { status: 'hidden', published_at: null };
+    if (publishMode === 'schedule') {
+      const iso = athensLocalInputToIso(scheduledAt);
+      if (!iso) throw new Error('Add a valid Athens publish date and time.');
+      if (new Date(iso).getTime() <= Date.now() - 60000) throw new Error('Scheduled publish time must be in the future.');
+      return { status: 'scheduled', published_at: iso };
+    }
+    return { status: 'published', published_at: new Date().toISOString() };
   }
 
   async function submit(e) {
@@ -992,17 +1034,24 @@ function Composer({ profile, onCreated }) {
     try {
       if (!profile?.id) throw new Error('Your session is not ready. Refresh and log in again.');
       if (!canPublishArticles(profile?.role)) throw new Error('This account does not have writer access. Ask an admin to promote it to Writer.');
+      if (isEditing && profile?.role !== 'admin' && editingArticle.author_id !== profile.id) throw new Error('Editors can edit only their own articles.');
       if (!title.trim()) throw new Error('Add an article title.');
       if (!content.trim()) throw new Error('Write the article body first.');
       if (sourceUrl.trim() && !isSafeUrl(sourceUrl.trim())) throw new Error('Article source URL must start with http:// or https://');
       if (imageSourceUrl.trim() && !isSafeUrl(imageSourceUrl.trim())) throw new Error('Image source URL must start with http:// or https://');
       const media = parseMediaLinks(mediaLinks);
       if (mediaLinks.trim() && media.length === 0) throw new Error('Add valid YouTube/Spotify/media links, one per line.');
-      inlineImages.forEach((item, index) => {
+      [...existingInlineImages, ...inlineImages].forEach((item, index) => {
         if (item.source_url?.trim() && !isSafeUrl(item.source_url.trim())) throw new Error(`Inline image ${index + 1} source URL must start with http:// or https://`);
       });
 
-      const uploadedInline = [];
+      const uploadedInline = existingInlineImages.map((item, index) => ({
+        path: item.path || item.url || '',
+        caption: item.caption?.trim() || '',
+        source_url: item.source_url?.trim() || '',
+        after_paragraph: normalizeImagePlacement(item.after_paragraph, index + 1),
+      })).filter((item) => item.path);
+
       for (const item of inlineImages) {
         const path = await uploadArticleImage(item.file);
         uploadedInline.push({
@@ -1016,71 +1065,83 @@ function Composer({ profile, onCreated }) {
       let uploadedCover = null;
       if (coverImage) uploadedCover = await uploadArticleImage(coverImage);
 
-      let mainImagePath = uploadedCover;
+      let mainImagePath = uploadedCover || (mainImageChoice === 'existing-cover' ? existingCoverUrl : null);
+      if (mainImageChoice.startsWith('existing-inline-')) {
+        const index = Number(mainImageChoice.replace('existing-inline-', ''));
+        if (existingInlineImages[index]?.path || existingInlineImages[index]?.url) mainImagePath = existingInlineImages[index].path || existingInlineImages[index].url;
+      }
       if (mainImageChoice.startsWith('inline-')) {
         const index = Number(mainImageChoice.replace('inline-', ''));
-        if (uploadedInline[index]?.path) mainImagePath = uploadedInline[index].path;
+        const existingCount = existingInlineImages.length;
+        if (uploadedInline[existingCount + index]?.path) mainImagePath = uploadedInline[existingCount + index].path;
       }
       if (!mainImagePath && uploadedInline[0]?.path) mainImagePath = uploadedInline[0].path;
 
       const cleanExcerpt = excerpt.trim() || content.trim().replace(/\s+/g, ' ').slice(0, 220);
       const cleanedContent = content.trim().replace(/\r\n/g, '\n');
-      const payload = {
-        article_title: title.trim(),
-        article_category: category,
-        article_excerpt: cleanExcerpt,
-        article_content: cleanedContent,
-        article_image_path: mainImagePath,
-        article_video_url: media[0] || null,
-        article_source_url: sourceUrl.trim() || null,
-        article_media_urls: media,
-        article_extra_images: uploadedInline,
-        article_image_source_url: imageSourceUrl.trim() || null,
-        article_source_notes: sourceNotes.trim() || null,
+      const publishFields = computePublishFields();
+      const record = {
+        title: title.trim(),
+        category,
+        excerpt: cleanExcerpt,
+        content: cleanedContent,
+        image_path: mainImagePath || null,
+        video_url: media[0] || null,
+        source_url: sourceUrl.trim() || null,
+        media_urls: media,
+        extra_images: uploadedInline,
+        image_source_url: imageSourceUrl.trim() || null,
+        source_notes: sourceNotes.trim() || null,
+        status: publishFields.status,
+        published_at: publishFields.published_at,
+        updated_at: new Date().toISOString(),
       };
 
-      const { error: rpcError } = await supabase.rpc('publish_article', payload);
-      if (rpcError) {
-        const { error: insertError } = await supabase.from('articles').insert({
-          author_id: profile.id,
-          title: payload.article_title,
-          category: payload.article_category,
-          excerpt: payload.article_excerpt,
-          status: 'published',
-          content: payload.article_content,
-          video_url: payload.article_video_url,
-          source_url: payload.article_source_url,
-          image_path: payload.article_image_path,
-          media_urls: payload.article_media_urls,
-          extra_images: payload.article_extra_images,
-          image_source_url: payload.article_image_source_url,
-          source_notes: payload.article_source_notes,
-        });
+      if (isEditing) {
+        const { error: updateError } = await supabase.from('articles').update(record).eq('id', editingArticle.id);
+        if (updateError) throw new Error(`${updateError.message}. Run the latest supabase/schema.sql in Supabase SQL Editor, then try again.`);
+      } else {
+        const { error: insertError } = await supabase.from('articles').insert({ ...record, author_id: profile.id });
         if (insertError) throw new Error(`${insertError.message}. Run the latest supabase/schema.sql in Supabase SQL Editor, then try again.`);
       }
 
-      setTitle('');
-      setCategory('basketball');
-      setExcerpt('');
-      setContent('');
-      setMediaLinks('');
-      setSourceUrl('');
-      setSourceNotes('');
-      setImageSourceUrl('');
-      setCoverImage(null);
-      setInlineImages([]);
-      setMainImageChoice('cover');
-      setSuccess('Article published. It is now visible on the public front page.');
+      if (!isEditing) {
+        setTitle('');
+        setCategory('basketball');
+        setExcerpt('');
+        setContent('');
+        setMediaLinks('');
+        setSourceUrl('');
+        setSourceNotes('');
+        setImageSourceUrl('');
+        setCoverImage(null);
+        setExistingCoverUrl('');
+        setExistingInlineImages([]);
+        setInlineImages([]);
+        setMainImageChoice('cover');
+        setPublishMode('now');
+        setScheduledAt(defaultAthensScheduleInput(1));
+      }
+      const statusMessage = publishFields.status === 'scheduled'
+        ? `Article saved. It will become public on ${athensFormat(publishFields.published_at)} Athens time.`
+        : publishFields.status === 'hidden'
+          ? 'Article saved as hidden. It remains visible only inside the editor list.'
+          : 'Article published. It is now visible on the public front page.';
+      setSuccess(isEditing ? `Article updated. ${statusMessage}` : statusMessage);
       onCreated?.();
-      setTimeout(() => setSuccess(''), 3000);
+      setTimeout(() => setSuccess(''), 3500);
     } catch (err) {
-      setError(err.message || 'Could not publish article');
+      setError(err.message || 'Could not save article');
     } finally {
       setBusy(false);
     }
   }
 
   const paragraphCount = Math.max(1, normalizeParagraphs(content).length);
+  const allInlinePreviewItems = [
+    ...existingInlineImages.map((item) => ({ ...item, preview: publicAssetUrl(BUCKET, item.path || item.url) })),
+    ...inlinePreviews,
+  ];
 
   const previewDraft = {
     title,
@@ -1091,8 +1152,16 @@ function Composer({ profile, onCreated }) {
     source_url: sourceUrl,
     image_source_url: imageSourceUrl,
     source_notes: sourceNotes,
-    cover_preview: mainImageChoice.startsWith('inline-') ? inlinePreviews[Number(mainImageChoice.replace('inline-', ''))]?.preview : coverPreview,
-    extra_images: inlinePreviews.map((item, index) => ({ url: item.preview, caption: item.caption, source_url: item.source_url, after_paragraph: normalizeImagePlacement(item.after_paragraph, index + 1) })),
+    cover_preview: mainImageChoice === 'existing-cover'
+      ? publicAssetUrl(BUCKET, existingCoverUrl)
+      : mainImageChoice.startsWith('existing-inline-')
+        ? publicAssetUrl(BUCKET, existingInlineImages[Number(mainImageChoice.replace('existing-inline-', ''))]?.path || existingInlineImages[Number(mainImageChoice.replace('existing-inline-', ''))]?.url)
+        : mainImageChoice.startsWith('inline-')
+          ? inlinePreviews[Number(mainImageChoice.replace('inline-', ''))]?.preview
+          : coverPreview,
+    extra_images: allInlinePreviewItems.map((item, index) => ({ url: item.preview || publicAssetUrl(BUCKET, item.path || item.url), caption: item.caption, source_url: item.source_url, after_paragraph: normalizeImagePlacement(item.after_paragraph, index + 1) })),
+    status: publishMode === 'hidden' ? 'hidden' : publishMode === 'schedule' ? 'scheduled' : 'published',
+    published_at: publishMode === 'schedule' ? athensLocalInputToIso(scheduledAt) : null,
   };
 
   return (
@@ -1101,8 +1170,8 @@ function Composer({ profile, onCreated }) {
         <div className="composer-head pro-composer-head">
           <div>
             <span className="eyebrow">THRYLOS UNITED STUDIO</span>
-            <h2>New article</h2>
-            <p>Write long-form posts with a cover image, inline media, sources and live preview before publishing.</p>
+            <h2>{isEditing ? 'Edit article' : 'New article'}</h2>
+            <p>{isEditing ? 'Update the text, media, visibility and publishing time.' : 'Write long-form posts with a cover image, inline media, sources and live preview before publishing.'}</p>
           </div>
           <select value={category} onChange={(e) => setCategory(e.target.value)}>
             {ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
@@ -1126,7 +1195,7 @@ function Composer({ profile, onCreated }) {
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="Write the full article here. Every line break becomes a new paragraph on the site."
-                rows={26}
+                rows={30}
                 maxLength={100000}
                 required
               />
@@ -1134,11 +1203,34 @@ function Composer({ profile, onCreated }) {
           </div>
 
           <aside className="article-editor-side glass-card">
+            <span className="eyebrow">VISIBILITY</span>
+            <div className="publish-options">
+              <label className={publishMode === 'now' ? 'active' : ''}>
+                <input type="radio" checked={publishMode === 'now'} onChange={() => setPublishMode('now')} />
+                <span><strong>Publish now</strong><small>Visible immediately on the public page.</small></span>
+              </label>
+              <label className={publishMode === 'schedule' ? 'active' : ''}>
+                <input type="radio" checked={publishMode === 'schedule'} onChange={() => setPublishMode('schedule')} />
+                <span><strong>Schedule</strong><small>Choose Athens date and time.</small></span>
+              </label>
+              <label className={publishMode === 'hidden' ? 'active' : ''}>
+                <input type="radio" checked={publishMode === 'hidden'} onChange={() => setPublishMode('hidden')} />
+                <span><strong>Hide from public</strong><small>Keep it in the editor list only.</small></span>
+              </label>
+            </div>
+            {publishMode === 'schedule' && (
+              <label>
+                Athens publish time
+                <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
+                <small className="field-help">This time is interpreted as Athens, Greece time.</small>
+              </label>
+            )}
+
             <span className="eyebrow">MEDIA</span>
             <label className="upload-label pro-upload-label">
               <span>Main/cover image</span>
               <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => { setCoverImage(e.target.files?.[0] || null); setMainImageChoice('cover'); }} />
-              <em>{coverImage ? coverImage.name : 'Upload the main article image'}</em>
+              <em>{coverImage ? coverImage.name : existingCoverUrl ? 'Current cover image is active. Upload to replace it.' : 'Upload the main article image'}</em>
             </label>
             <label>
               Main image source / credit URL
@@ -1147,11 +1239,15 @@ function Composer({ profile, onCreated }) {
 
             <div className="main-image-picker">
               <strong>Main article image</strong>
-              {coverImage && <label><input type="radio" checked={mainImageChoice === 'cover'} onChange={() => setMainImageChoice('cover')} /> Use cover image</label>}
-              {inlinePreviews.map((item, index) => (
-                <label key={index}><input type="radio" checked={mainImageChoice === `inline-${index}`} onChange={() => setMainImageChoice(`inline-${index}`)} /> Use inline image {index + 1}</label>
+              {existingCoverUrl && <label><input type="radio" checked={mainImageChoice === 'existing-cover'} onChange={() => setMainImageChoice('existing-cover')} /> Keep current cover</label>}
+              {coverImage && <label><input type="radio" checked={mainImageChoice === 'cover'} onChange={() => setMainImageChoice('cover')} /> Use new cover image</label>}
+              {existingInlineImages.map((item, index) => (
+                <label key={`existing-main-${index}`}><input type="radio" checked={mainImageChoice === `existing-inline-${index}`} onChange={() => setMainImageChoice(`existing-inline-${index}`)} /> Use saved inline image {index + 1}</label>
               ))}
-              {!coverImage && inlinePreviews.length === 0 && <small>No image uploaded yet.</small>}
+              {inlinePreviews.map((item, index) => (
+                <label key={`new-main-${index}`}><input type="radio" checked={mainImageChoice === `inline-${index}`} onChange={() => setMainImageChoice(`inline-${index}`)} /> Use new inline image {index + 1}</label>
+              ))}
+              {!existingCoverUrl && !coverImage && existingInlineImages.length === 0 && inlinePreviews.length === 0 && <small>No image uploaded yet.</small>}
             </div>
 
             <label className="upload-label pro-upload-label">
@@ -1159,8 +1255,26 @@ function Composer({ profile, onCreated }) {
               <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(e) => addInlineImages(e.target.files)} />
               <em>Add more images for the article body/gallery</em>
             </label>
-            {inlinePreviews.length > 0 && (
+            {(existingInlineImages.length > 0 || inlinePreviews.length > 0) && (
               <div className="inline-image-list">
+                {existingInlineImages.map((item, index) => (
+                  <div className="inline-image-editor" key={`existing-${item.path || item.url}-${index}`}>
+                    <img src={publicAssetUrl(BUCKET, item.path || item.url)} alt="Saved inline preview" loading="lazy" decoding="async" />
+                    <input value={item.caption || ''} onChange={(e) => updateExistingInlineImage(index, { caption: e.target.value })} placeholder="Italic caption under this image" />
+                    <input value={item.source_url || ''} onChange={(e) => updateExistingInlineImage(index, { source_url: e.target.value })} placeholder="Image source URL" />
+                    <label className="inline-placement-control">
+                      Show image after paragraph
+                      <select value={String(normalizeImagePlacement(item.after_paragraph, index + 1))} onChange={(e) => updateExistingInlineImage(index, { after_paragraph: Number(e.target.value) })}>
+                        <option value="0">Before the first paragraph</option>
+                        {Array.from({ length: paragraphCount }, (_, paragraphIndex) => (
+                          <option key={paragraphIndex + 1} value={paragraphIndex + 1}>After paragraph {paragraphIndex + 1}</option>
+                        ))}
+                        <option value={paragraphCount + 1}>After the article text</option>
+                      </select>
+                    </label>
+                    <button type="button" className="ghost-btn compact" onClick={() => removeExistingInlineImage(index)}>Remove</button>
+                  </div>
+                ))}
                 {inlinePreviews.map((item, index) => (
                   <div className="inline-image-editor" key={`${item.file.name}-${index}`}>
                     <img src={item.preview} alt="Inline preview" loading="lazy" decoding="async" />
@@ -1199,19 +1313,25 @@ function Composer({ profile, onCreated }) {
 
         {error && <div className="error-box">{error}</div>}
         {success && <div className="success-box">{success}</div>}
-        <button className="primary-btn publish-btn" type="submit" disabled={busy}>{busy ? 'Publishing…' : 'Publish article'}</button>
+        <div className="editor-form-actions">
+          {isEditing && <button className="ghost-btn" type="button" onClick={onCancelEdit}>Cancel edit</button>}
+          <button className="primary-btn publish-btn" type="submit" disabled={busy}>{busy ? 'Saving…' : isEditing ? 'Save changes' : publishMode === 'schedule' ? 'Schedule article' : publishMode === 'hidden' ? 'Save hidden article' : 'Publish article'}</button>
+        </div>
       </form>
 
       <section className="live-preview-section">
         <div className="preview-heading">
           <span className="eyebrow">LIVE PREVIEW</span>
           <h2>How it will appear</h2>
+          {publishMode === 'schedule' && <p>Scheduled for {scheduledAt ? `${scheduledAt.replace('T', ' ')} Athens time` : 'a future Athens time'}.</p>}
+          {publishMode === 'hidden' && <p>This article is hidden from public pages until you publish or schedule it.</p>}
         </div>
         <ArticlePreviewCard draft={previewDraft} profile={profile} />
       </section>
     </section>
   );
 }
+
 
 function PostCard({ post, profile, onChanged }) {
   const [comments, setComments] = useState([]);
@@ -1309,7 +1429,7 @@ function PostCard({ post, profile, onChanged }) {
           <UserAvatar profile={author} className="post-avatar" />
           <div>
             <strong>{displayUser(author)}</strong>
-            <small>@{author?.handle || 'anon'} · {formatTime(post.created_at)}</small>
+            <small>@{author?.handle || 'anon'} · {formatTime(post.published_at || post.created_at)}</small>
           </div>
         </div>
         <div className="post-actions">
@@ -1455,7 +1575,7 @@ function EditorialBoard({ posts, profile, settings = DEFAULT_SITE_SETTINGS, onFi
             <li key={post.id}>
               <span>{String(index + 1).padStart(2, '0')}</span>
               <strong>{(post.title || editorialTitle(post.content))}</strong>
-              <em>{formatTime(post.created_at)}</em>
+              <em>{formatTime(post.published_at || post.created_at)}</em>
             </li>
           ))}
         </ol>
@@ -1487,7 +1607,7 @@ function EditorialBoard({ posts, profile, settings = DEFAULT_SITE_SETTINGS, onFi
             <article key={post.id} className="latest-story-card">
               <span>{sectionLabel(post.kind, post.category)}</span>
               <strong>{(post.title || editorialTitle(post.content))}</strong>
-              <small>{displayUser(post.profiles)} · {formatTime(post.created_at)}</small>
+              <small>{displayUser(post.profiles)} · {formatTime(post.published_at || post.created_at)}</small>
             </article>
           ))}
         </div>
@@ -1545,7 +1665,7 @@ function EditorialBoard({ posts, profile, settings = DEFAULT_SITE_SETTINGS, onFi
             {columns.map((post) => (
               <article key={post.id}>
                 <strong>{(post.title || editorialTitle(post.content))}</strong>
-                <small>{displayUser(post.profiles)} · {formatTime(post.created_at)}</small>
+                <small>{displayUser(post.profiles)} · {formatTime(post.published_at || post.created_at)}</small>
               </article>
             ))}
           </div>
@@ -1638,7 +1758,7 @@ function PublicArticleCard({ post, onOpen }) {
         <span className="kind-pill">{categoryCaps(post.category)}</span>
         <h2>{post.title || editorialTitle(post.content)}</h2>
         <p>{post.excerpt || String(post.content || '').slice(0, 210)}</p>
-        <small>Γράφει: {displayUser(author)} · {formatTime(post.created_at)}</small>
+        <small>Γράφει: {displayUser(author)} · {formatTime(post.published_at || post.created_at)}</small>
       </div>
     </article>
   );
@@ -1657,8 +1777,9 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
     let query = supabase
       .from('articles')
       .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
-      .or('status.eq.published,status.is.null')
-      .order('created_at', { ascending: false })
+      .eq('status', 'published')
+      .lte('published_at', new Date().toISOString())
+      .order('published_at', { ascending: false })
       .limit(60);
     if (category !== 'all') query = query.eq('category', category);
     const { data } = await query;
@@ -1742,7 +1863,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
           <div className="carousel-meta-strip">
             <div className="carousel-byline">
               <UserAvatar profile={current.profiles} className="comment-avatar" />
-              <span>Γράφει: <strong>{displayUser(current.profiles)}</strong><small>{formatTime(current.created_at)}</small></span>
+              <span>Γράφει: <strong>{displayUser(current.profiles)}</strong><small>{formatTime(current.published_at || current.created_at)}</small></span>
             </div>
             {featured.length > 1 && (
               <div className="carousel-dots" aria-label="Featured articles">
@@ -1811,8 +1932,8 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
     if (queryError) {
       setError(queryError.message || 'Δεν ήταν δυνατή η φόρτωση του άρθρου.');
       setArticle(null);
-    } else if (!data || (data.status && data.status !== 'published')) {
-      setError('Το άρθρο δεν βρέθηκε ή δεν είναι διαθέσιμο.');
+    } else if (!data || !articleIsPublic(data)) {
+      setError('Το άρθρο δεν βρέθηκε ή δεν είναι ακόμα διαθέσιμο.');
       setArticle(null);
     } else {
       setArticle(data);
@@ -1889,7 +2010,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
             <h1>{article.title || editorialTitle(article.content)}</h1>
             <div className="article-byline article-page-byline">
               <UserAvatar profile={article.profiles} className="comment-avatar" />
-              <span>Γράφει: <strong>{displayUser(article.profiles)}</strong> · {formatTime(article.created_at)}</span>
+              <span>Γράφει: <strong>{displayUser(article.profiles)}</strong> · {formatTime(article.published_at || article.created_at)}</span>
             </div>
             {article.excerpt && <p className="article-page-excerpt">{article.excerpt}</p>}
             <ArticleContentWithImages content={article.content} images={article.extra_images} />
@@ -3835,8 +3956,9 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
     let query = supabase
       .from('articles')
       .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
-      .or('status.eq.published,status.is.null')
-      .order('created_at', { ascending: false })
+      .eq('status', 'published')
+      .lte('published_at', new Date().toISOString())
+      .order('published_at', { ascending: false })
       .limit(60);
     if (category !== 'all') query = query.eq('category', category);
     const { data } = await query;
@@ -3914,7 +4036,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
             <span className="article-category-pill">{categoryCaps(article.category)}</span>
             <h3>{article.title || article.content.slice(0, 80)}</h3>
             <p>{article.excerpt || article.content.slice(0, 160)}</p>
-            <small>By {displayUser(article.profiles)} · {formatTime(article.created_at)}</small>
+            <small>By {displayUser(article.profiles)} · {formatTime(article.published_at || article.created_at)}</small>
           </article>
         ))}
       </section>
@@ -3943,7 +4065,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
 }
 
 
-function ArticleManager({ profile }) {
+function ArticleManager({ profile, onEdit }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -3954,8 +4076,8 @@ function ArticleManager({ profile }) {
       .from('articles')
       .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
       .order('created_at', { ascending: false })
-      .limit(80);
-    if (!isStaff(profile?.role)) query = query.eq('author_id', profile.id);
+      .limit(100);
+    if (profile?.role !== 'admin') query = query.eq('author_id', profile.id);
     const { data } = await query;
     setArticles(data || []);
     setLoading(false);
@@ -3985,7 +4107,7 @@ function ArticleManager({ profile }) {
       <ConfirmModal
         open={Boolean(deleteTarget)}
         title="Delete article?"
-        body="This article will be removed from the public page and the members area."
+        body="This article will be removed from the public page and the editor list."
         confirmLabel="Delete article"
         onCancel={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
@@ -3993,38 +4115,69 @@ function ArticleManager({ profile }) {
       <div className="clean-panel-head">
         <div>
           <span className="eyebrow">ARTICLES</span>
-          <h2>{isStaff(profile?.role) ? 'Published articles' : 'My articles'}</h2>
+          <h2>{profile?.role === 'admin' ? 'All articles' : 'My articles'}</h2>
+          <p className="panel-subtitle">Published, scheduled and hidden articles stay here. Scheduled articles show their countdown until public release.</p>
         </div>
         <button className="ghost-btn compact" type="button" onClick={loadArticles}>Refresh</button>
       </div>
       {loading && <p className="empty-text">Loading articles…</p>}
       {!loading && articles.length === 0 && <p className="empty-text">No articles yet.</p>}
-      <div className="editor-article-list">
-        {articles.map((article) => (
-          <article key={article.id} className="editor-article-row">
-            {article.image_path ? <img src={publicAssetUrl(BUCKET, article.image_path)} alt="" loading="lazy" decoding="async" /> : <div className="article-placeholder-thumb">P24</div>}
-            <div>
-              <strong>{article.title || editorialTitle(article.content)}</strong>
-              <small>{categoryLabel(article.category)} · {displayUser(article.profiles)} · {formatTime(article.created_at)}</small>
-              <p>{article.excerpt || String(article.content || '').slice(0, 140)}</p>
-            </div>
-            {(article.author_id === profile.id || isStaff(profile.role)) && (
-              <button className="danger-mini-btn" type="button" onClick={() => setDeleteTarget(article)}>Delete</button>
-            )}
-          </article>
-        ))}
+      <div className="editor-article-list enhanced-article-list">
+        {articles.map((article) => {
+          const status = articleStatus(article);
+          const imageSrc = article.image_path ? publicAssetUrl(BUCKET, article.image_path) : '';
+          const canManage = article.author_id === profile.id || profile.role === 'admin';
+          return (
+            <article key={article.id} className={`editor-article-row article-status-${status}`}>
+              {imageSrc ? <img src={imageSrc} alt="" loading="lazy" decoding="async" /> : <div className="article-placeholder-thumb">TU</div>}
+              <div className="editor-article-row-main">
+                <div className="article-row-titleline">
+                  <strong>{article.title || editorialTitle(article.content)}</strong>
+                  <span className={`article-status-pill ${status}`}>{articleStatusLabel(article)}</span>
+                </div>
+                <small>{categoryLabel(article.category)} · {displayUser(article.profiles)} · Created {formatTime(article.published_at || article.created_at)}</small>
+                {status === 'scheduled' && <small className="schedule-line">Athens publish time: {athensFormat(article.published_at)} · <PublishCountdown value={article.published_at} /></small>}
+                {status === 'hidden' && <small className="schedule-line">Hidden from public pages. Use Edit to publish or schedule it.</small>}
+                <p>{article.excerpt || String(article.content || '').slice(0, 180)}</p>
+                <details className="editor-mini-preview">
+                  <summary>Preview in editor</summary>
+                  <ArticlePreviewCard draft={{ ...article, mediaLinks: [article.video_url, ...safeJsonArray(article.media_urls)].filter(Boolean).join('\n'), cover_preview: imageSrc }} profile={article.profiles || profile} />
+                </details>
+              </div>
+              {canManage && (
+                <div className="article-row-actions">
+                  <button className="ghost-btn compact" type="button" onClick={() => onEdit?.(article)}>Edit</button>
+                  <button className="danger-mini-btn" type="button" onClick={() => setDeleteTarget(article)}>Delete</button>
+                </div>
+              )}
+            </article>
+          );
+        })}
       </div>
     </section>
   );
 }
 
+
 function EditorDashboard({ profile, setProfile, settings, setView }) {
   const [tab, setTab] = useState(canPublishArticles(profile?.role) ? 'write' : 'articles');
+  const [editingArticle, setEditingArticle] = useState(null);
   const tabs = [
-    canPublishArticles(profile?.role) && ['write', 'New article'],
+    canPublishArticles(profile?.role) && ['write', editingArticle ? 'Editing' : 'New article'],
     ['articles', 'Articles'],
     ['profile', 'Profile'],
   ].filter(Boolean);
+
+  function startEdit(article) {
+    setEditingArticle(article);
+    setTab('write');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function clearEdit(nextTab = 'articles') {
+    setEditingArticle(null);
+    setTab(nextTab);
+  }
 
   return (
     <main className="editor-studio-page">
@@ -4032,7 +4185,7 @@ function EditorDashboard({ profile, setProfile, settings, setView }) {
         <div>
           <span className="eyebrow">THRYLOS UNITED STUDIO</span>
           <h1>Thrylos United publishing studio</h1>
-          <p>Write articles, preview them, manage published texts and update your writer profile.</p>
+          <p>Write articles, schedule publishing in Athens time, manage drafts/hidden articles and update your writer profile.</p>
         </div>
         <div className="editor-quick-actions">
           <button className="ghost-btn" type="button" onClick={() => window.open('/', '_self')}>Public page</button>
@@ -4047,8 +4200,8 @@ function EditorDashboard({ profile, setProfile, settings, setView }) {
       </nav>
 
       <section className="editor-tab-body">
-        {tab === 'write' && <Composer profile={profile} onCreated={() => setTab('articles')} />}
-        {tab === 'articles' && <ArticleManager profile={profile} />}
+        {tab === 'write' && <Composer key={editingArticle?.id || 'new'} profile={profile} editingArticle={editingArticle} onCancelEdit={() => clearEdit('articles')} onCreated={() => clearEdit('articles')} />}
+        {tab === 'articles' && <ArticleManager profile={profile} onEdit={startEdit} />}
         {tab === 'profile' && <ProfileCard profile={profile} setProfile={setProfile} />}
       </section>
     </main>
