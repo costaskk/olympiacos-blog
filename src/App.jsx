@@ -120,6 +120,37 @@ function publicAssetUrl(bucket, path) {
   return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 }
 
+async function uploadImageFile(file, folder = 'articles') {
+  if (!file) return '';
+  if (!file.type.startsWith('image/')) throw new Error('Only image uploads are allowed.');
+  const sessionResult = await supabase.auth.getSession();
+  const token = sessionResult?.data?.session?.access_token || '';
+  if (!token) throw new Error('Your login session expired. Please log in again.');
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('folder', folder);
+
+  const response = await fetch('/api/upload-image', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_) {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.error || `Cloudflare upload failed with HTTP ${response.status}`);
+  }
+  if (!payload?.url) throw new Error('Cloudflare upload did not return an image URL.');
+  return payload.url;
+}
+
 function profileAvatarUrl(profile) {
   return publicAssetUrl(PROFILE_IMAGES_BUCKET, profile?.avatar_url || '');
 }
@@ -880,15 +911,7 @@ function Composer({ profile, onCreated }) {
   async function uploadArticleImage(file) {
     if (!file.type.startsWith('image/')) throw new Error('Only image uploads are allowed.');
     if (file.size > 12 * 1024 * 1024) throw new Error('Each image must be under 12 MB.');
-    const safeName = file.name.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
-    const imagePath = `${profile.id}/${Date.now()}-${randomId()}-${safeName}`;
-    const { error: uploadError } = await supabase.storage.from(BUCKET).upload(imagePath, file, {
-      cacheControl: '3600',
-      upsert: true,
-      contentType: file.type,
-    });
-    if (uploadError) throw new Error(`Image upload failed: ${uploadError.message}. Make sure the latest supabase/schema.sql has been run.`);
-    return imagePath;
+    return uploadImageFile(file, `articles/${profile.id}`);
   }
 
   async function submit(e) {
@@ -1944,15 +1967,7 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
     if (!file) return '';
     if (!file.type.startsWith('image/')) throw new Error('Only image files are allowed.');
     if (file.size > 5 * 1024 * 1024) throw new Error('Brand images must be under 5 MB.');
-    const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
-    const safeExt = ext.replace(/[^a-z0-9]/g, '') || 'png';
-    const path = `branding/${type}-${Date.now()}-${randomId()}.${safeExt}`;
-    const { error: uploadError } = await supabase.storage.from(SITE_ASSETS_BUCKET).upload(path, file, {
-      cacheControl: '3600',
-      upsert: false,
-    });
-    if (uploadError) throw uploadError;
-    return publicAssetUrl(SITE_ASSETS_BUCKET, path);
+    return uploadImageFile(file, `branding/${type}`);
   }
 
   async function saveSettings(e) {
@@ -3627,25 +3642,20 @@ function ProfileCard({ profile, setProfile }) {
     const localPreview = URL.createObjectURL(file);
     setAvatarPreview(localPreview);
 
-    const extension = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
-    const path = `${profile.id}/${Date.now()}-${randomId()}.${extension}`;
-    const { error: uploadError } = await supabase.storage.from(PROFILE_IMAGES_BUCKET).upload(path, file, {
-      cacheControl: '3600',
-      upsert: true,
-      contentType: file.type,
-    });
-    if (uploadError) {
-      alert(uploadError.message);
+    let publicUrl = '';
+    try {
+      publicUrl = await uploadImageFile(file, `avatars/${profile.id}`);
+    } catch (uploadError) {
+      alert(uploadError?.message || 'Avatar upload failed.');
       setAvatarPreview(oldPreview);
       URL.revokeObjectURL(localPreview);
       setAvatarBusy(false);
       return;
     }
 
-    const publicUrl = publicAssetUrl(PROFILE_IMAGES_BUCKET, path);
     const { data, error } = await supabase
       .from('profiles')
-      .update({ avatar_url: path, last_seen: new Date().toISOString() })
+      .update({ avatar_url: publicUrl, last_seen: new Date().toISOString() })
       .eq('id', profile.id)
       .select('*')
       .single();
