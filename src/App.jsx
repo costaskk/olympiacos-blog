@@ -785,6 +785,8 @@ function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS, session 
 function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, setView, children }) {
   const [safeShield, setSafeShield] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const shellPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
+  const inEditorStudio = shellPath === '/editor' || shellPath === '/login';
 
   useEffect(() => {
     const blur = () => setSafeShield(true);
@@ -843,6 +845,13 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
           <span className="status-dot" />
           <span>{displayUser(profile)}</span>
           <em>{roleBadge(profile?.role)}</em>
+          <button
+            type="button"
+            className="ghost-btn compact"
+            onClick={() => window.location.assign(inEditorStudio ? '/' : '/editor')}
+          >
+            {inEditorStudio ? 'Public page' : 'Editor'}
+          </button>
           {profile?.role === 'admin' && (
             <button type="button" className="ghost-btn compact" onClick={() => setView(view === 'admin-site' ? 'feed' : 'admin-site')}>
               {view === 'admin-site' ? 'Blog' : 'Site settings'}
@@ -1563,7 +1572,7 @@ function PublicArticleCard({ post, onOpen }) {
   );
 }
 
-function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
+function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
   const [articles, setArticles] = useState([]);
   const [category, setCategory] = useState('all');
   const [activeSlide, setActiveSlide] = useState(0);
@@ -1613,6 +1622,11 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
     <main className="public-site-shell port24-public-shell">
       <header className="public-topbar port24-topbar glass-card">
         <div className="brand-lockup"><BrandMark settings={settings} /><div><strong>{settings.site_title || APP_NAME}</strong><small>{settings.header_tagline}</small></div></div>
+        {profile && (
+          <button className="ghost-btn compact" type="button" onClick={() => window.location.assign('/editor')}>
+            Editor
+          </button>
+        )}
       </header>
 
       <section className="public-hero port24-hero glass-card">
@@ -1693,7 +1707,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS }) {
 }
 
 
-function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId }) {
+function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = null }) {
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1744,6 +1758,11 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId }) {
           <BrandMark settings={settings} />
           <div><strong>{settings.site_title || APP_NAME}</strong><small>{settings.header_tagline}</small></div>
         </button>
+        {profile && (
+          <button className="ghost-btn compact" type="button" onClick={() => window.location.assign('/editor')}>
+            Editor
+          </button>
+        )}
       </header>
 
       <section className="public-hero port24-hero glass-card article-page-hero">
@@ -4029,7 +4048,7 @@ function App() {
     return <PublicFrontPage settings={siteSettings} />;
   }
 
-  if (articleId) return <ArticlePage settings={siteSettings} articleId={articleId} />;
+  if (articleId) return <ArticlePage settings={siteSettings} articleId={articleId} profile={profile} />;
 
   return (
     <Shell profile={profile} setProfile={setProfile} settings={siteSettings} view={view} setView={setView}>
@@ -4043,7 +4062,7 @@ function App() {
         <EditorDashboard profile={profile} setProfile={setProfile} settings={siteSettings} setView={setView} />
       ) : (
         <main className="member-clean-home">
-          <PublicFrontPage settings={siteSettings} />
+          <PublicFrontPage settings={siteSettings} profile={profile} />
         </main>
       )}
       <ChatPanel profile={profile} />
