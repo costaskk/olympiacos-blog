@@ -120,6 +120,24 @@ function publicAssetUrl(bucket, path) {
   return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 }
 
+function navigateTo(url) {
+  document.body.classList.add('page-is-leaving');
+  window.setTimeout(() => {
+    window.location.assign(url);
+  }, 90);
+}
+
+function preloadImage(url) {
+  if (!url || typeof Image === 'undefined') return;
+  const img = new Image();
+  img.decoding = 'async';
+  img.src = url;
+}
+
+function allowCopyTarget(target) {
+  return Boolean(target?.closest?.('input, textarea, [contenteditable="true"], .copy-allowed'));
+}
+
 async function uploadImageFile(file, folder = 'articles') {
   if (!file) return '';
   if (!file.type.startsWith('image/')) throw new Error('Only image uploads are allowed.');
@@ -169,7 +187,7 @@ function UserAvatar({ profile, name, color, className = '', title = '' }) {
   const safeColor = color || userColor(profile);
   return (
     <span className={`user-avatar ${className}`.trim()} style={{ '--member-color': safeColor, background: safeColor }} title={title || displayName}>
-      {src ? <img src={src} alt={displayName} loading="lazy" /> : <span>{getInitials(displayName)}</span>}
+      {src ? <img src={src} alt={displayName} loading="lazy" decoding="async" /> : <span>{getInitials(displayName)}</span>}
     </span>
   );
 }
@@ -448,27 +466,72 @@ function MediaEmbed({ url }) {
   return null;
 }
 
-function ArticleMediaGallery({ images = [] }) {
-  const items = safeJsonArray(images).filter((item) => item?.path || item?.url);
-  if (!items.length) return null;
+function ArticleInlineFigure({ item, index }) {
+  const src = item?.url || publicAssetUrl(BUCKET, item?.path);
+  if (!src) return null;
   return (
-    <div className="article-media-gallery">
-      {items.map((item, index) => {
-        const src = item.url || publicAssetUrl(BUCKET, item.path);
-        return (
-          <figure key={`${src}-${index}`}>
-            <img src={src} alt={item.caption || `Article image ${index + 1}`} loading="lazy" />
-            {(item.caption || item.source_url) && (
-              <figcaption>
-                {item.caption && <span>{item.caption}</span>}
-                {item.source_url && isSafeUrl(item.source_url) && <a href={item.source_url} target="_blank" rel="noreferrer">πηγή εικόνας</a>}
-              </figcaption>
-            )}
-          </figure>
-        );
+    <figure className="article-inline-figure" key={`${src}-${index}`}>
+      <img src={src} alt={item.caption || `Article image ${index + 1}`} loading="lazy" decoding="async" />
+      {(item.caption || item.source_url) && (
+        <figcaption>
+          {item.caption && <span>{item.caption}</span>}
+          {item.source_url && isSafeUrl(item.source_url) && <a href={item.source_url} target="_blank" rel="noreferrer">πηγή εικόνας</a>}
+        </figcaption>
+      )}
+    </figure>
+  );
+}
+
+function normalizeImagePlacement(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function ArticleContentWithImages({ content = '', images = [], fallbackText = '' }) {
+  const paragraphs = normalizeParagraphs(content || fallbackText);
+  const imageItems = safeJsonArray(images).filter((item) => item?.path || item?.url);
+  const placed = new Set();
+
+  return (
+    <div className="article-reader-content article-page-body">
+      {imageItems.map((item, imageIndex) => {
+        const position = normalizeImagePlacement(item.after_paragraph, null);
+        if (position === 0) {
+          placed.add(imageIndex);
+          return <ArticleInlineFigure key={`before-${imageIndex}`} item={item} index={imageIndex} />;
+        }
+        return null;
+      })}
+
+      {paragraphs.map((paragraph, paragraphIndex) => (
+        <React.Fragment key={`paragraph-${paragraphIndex}`}>
+          <p>{paragraph}</p>
+          {imageItems.map((item, imageIndex) => {
+            const fallbackPosition = Math.min(paragraphs.length || 1, imageIndex + 1);
+            const position = normalizeImagePlacement(item.after_paragraph, fallbackPosition);
+            if (position === paragraphIndex + 1) {
+              placed.add(imageIndex);
+              return <ArticleInlineFigure key={`after-${paragraphIndex}-${imageIndex}`} item={item} index={imageIndex} />;
+            }
+            return null;
+          })}
+        </React.Fragment>
+      ))}
+
+      {imageItems.map((item, imageIndex) => {
+        const position = normalizeImagePlacement(item.after_paragraph, Math.min(paragraphs.length || 1, imageIndex + 1));
+        if (!placed.has(imageIndex) || position > paragraphs.length) {
+          placed.add(imageIndex);
+          return <ArticleInlineFigure key={`end-${imageIndex}`} item={item} index={imageIndex} />;
+        }
+        return null;
       })}
     </div>
   );
+}
+
+function ArticleMediaGallery({ images = [] }) {
+  return <ArticleContentWithImages images={images} />;
 }
 
 function ArticleSources({ article }) {
@@ -492,7 +555,7 @@ function ArticlePreviewCard({ draft, profile }) {
   const cover = draft.cover_preview || draft.image_url || '';
   return (
     <article className="article-page-card glass-card live-preview-card">
-      {cover && <img className="article-page-cover" src={cover} alt="Article cover preview" />}
+      {cover && <img className="article-page-cover image-fade-in" src={cover} alt="Article cover preview" loading="eager" decoding="async" />}
       <div className="article-page-content">
         <span className="kind-pill">{categoryCaps(draft.category)}</span>
         <h1>{draft.title || 'Τίτλος άρθρου'}</h1>
@@ -501,10 +564,11 @@ function ArticlePreviewCard({ draft, profile }) {
           <span>Γράφει: <strong>{displayUser(profile)}</strong> · preview</span>
         </div>
         {draft.excerpt && <p className="article-page-excerpt">{draft.excerpt}</p>}
-        <div className="article-reader-content article-page-body">
-          {normalizeParagraphs(draft.content || 'Το κείμενο του άρθρου θα εμφανίζεται εδώ. Κάθε αλλαγή γραμμής γίνεται ξεχωριστή παράγραφος.').map((paragraph, index) => <p key={index}>{paragraph}</p>)}
-        </div>
-        <ArticleMediaGallery images={images} />
+        <ArticleContentWithImages
+          content={draft.content}
+          images={images}
+          fallbackText="Το κείμενο του άρθρου θα εμφανίζεται εδώ. Κάθε αλλαγή γραμμής γίνεται ξεχωριστή παράγραφος."
+        />
         {media.map((url, index) => <MediaEmbed key={`${url}-${index}`} url={url} />)}
         <ArticleSources article={draft} />
       </div>
@@ -521,6 +585,8 @@ function BrandMark({ large = false, settings = DEFAULT_SITE_SETTINGS }) {
       <img
         src={src}
         alt={`${settings?.site_title || APP_NAME} logo`}
+        loading="eager"
+        decoding="async"
         onError={() => {
           if (assetIndex < candidates.length - 1) setAssetIndex(assetIndex + 1);
         }}
@@ -675,7 +741,7 @@ function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS, session 
         </div>
 
         <div className="gate-public-return">
-          <button type="button" className="ghost-btn compact" onClick={() => window.location.assign('/')}>← Back to public front page</button>
+          <button type="button" className="ghost-btn compact" onClick={() => navigateTo('/')}>← Back to public front page</button>
         </div>
 
         {mode === 'login' ? (
@@ -782,25 +848,14 @@ function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS, session 
   );
 }
 
+function PageLoadingBar({ active }) {
+  return active ? <div className="page-loading-bar" aria-hidden="true" /> : null;
+}
+
 function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, setView, children }) {
-  const [safeShield, setSafeShield] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const shellPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
   const inEditorStudio = shellPath === '/editor' || shellPath === '/login';
-
-  useEffect(() => {
-    const blur = () => setSafeShield(true);
-    const focus = () => setSafeShield(false);
-    const vis = () => setSafeShield(document.hidden);
-    window.addEventListener('blur', blur);
-    window.addEventListener('focus', focus);
-    document.addEventListener('visibilitychange', vis);
-    return () => {
-      window.removeEventListener('blur', blur);
-      window.removeEventListener('focus', focus);
-      document.removeEventListener('visibilitychange', vis);
-    };
-  }, []);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -810,7 +865,7 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
   }
 
   return (
-    <div className="app-shell" onContextMenu={(e) => e.preventDefault()}>
+    <div className="app-shell copy-protected">
       <ConfirmModal
         open={logoutOpen}
         eyebrow="ACCOUNT SESSION"
@@ -823,16 +878,6 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
         onCancel={() => setLogoutOpen(false)}
         onConfirm={signOut}
       />
-      {safeShield && (
-        <div className="privacy-shield">
-          <div>
-            <BrandMark large settings={settings} />
-            <strong>Private screen shield</strong>
-            <small>Content is hidden while the tab is not active.</small>
-          </div>
-        </div>
-      )}
-      <div className="watermark">{profile?.handle || 'anonymous'} · private members forum</div>
       <header className="topbar">
         <div className="brand-lockup">
           <BrandMark settings={settings} />
@@ -848,7 +893,7 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
           <button
             type="button"
             className="ghost-btn compact"
-            onClick={() => window.location.assign(inEditorStudio ? '/' : '/editor')}
+            onClick={() => navigateTo(inEditorStudio ? '/' : '/editor')}
           >
             {inEditorStudio ? 'Public page' : 'Editor'}
           </button>
@@ -913,7 +958,7 @@ function Composer({ profile, onCreated }) {
     const picked = Array.from(files || [])
       .filter((file) => file.type.startsWith('image/'))
       .slice(0, Math.max(0, 12 - inlineImages.length))
-      .map((file) => ({ file, caption: '', source_url: '' }));
+      .map((file) => ({ file, caption: '', source_url: '', after_paragraph: Math.max(1, normalizeParagraphs(content).length || 1) }));
     if (picked.length) setInlineImages((items) => [...items, ...picked]);
   }
 
@@ -950,6 +995,7 @@ function Composer({ profile, onCreated }) {
           path,
           caption: item.caption?.trim() || '',
           source_url: item.source_url?.trim() || '',
+          after_paragraph: normalizeImagePlacement(item.after_paragraph, uploadedInline.length + 1),
         });
       }
 
@@ -1020,6 +1066,8 @@ function Composer({ profile, onCreated }) {
     }
   }
 
+  const paragraphCount = Math.max(1, normalizeParagraphs(content).length);
+
   const previewDraft = {
     title,
     category,
@@ -1030,7 +1078,7 @@ function Composer({ profile, onCreated }) {
     image_source_url: imageSourceUrl,
     source_notes: sourceNotes,
     cover_preview: mainImageChoice.startsWith('inline-') ? inlinePreviews[Number(mainImageChoice.replace('inline-', ''))]?.preview : coverPreview,
-    extra_images: inlinePreviews.map((item) => ({ url: item.preview, caption: item.caption, source_url: item.source_url })),
+    extra_images: inlinePreviews.map((item, index) => ({ url: item.preview, caption: item.caption, source_url: item.source_url, after_paragraph: normalizeImagePlacement(item.after_paragraph, index + 1) })),
   };
 
   return (
@@ -1101,9 +1149,19 @@ function Composer({ profile, onCreated }) {
               <div className="inline-image-list">
                 {inlinePreviews.map((item, index) => (
                   <div className="inline-image-editor" key={`${item.file.name}-${index}`}>
-                    <img src={item.preview} alt="Inline preview" />
-                    <input value={item.caption} onChange={(e) => updateInlineImage(index, { caption: e.target.value })} placeholder="Caption" />
+                    <img src={item.preview} alt="Inline preview" loading="lazy" decoding="async" />
+                    <input value={item.caption} onChange={(e) => updateInlineImage(index, { caption: e.target.value })} placeholder="Italic caption under this image" />
                     <input value={item.source_url} onChange={(e) => updateInlineImage(index, { source_url: e.target.value })} placeholder="Image source URL" />
+                    <label className="inline-placement-control">
+                      Show image after paragraph
+                      <select value={String(normalizeImagePlacement(item.after_paragraph, index + 1))} onChange={(e) => updateInlineImage(index, { after_paragraph: Number(e.target.value) })}>
+                        <option value="0">Before the first paragraph</option>
+                        {Array.from({ length: paragraphCount }, (_, paragraphIndex) => (
+                          <option key={paragraphIndex + 1} value={paragraphIndex + 1}>After paragraph {paragraphIndex + 1}</option>
+                        ))}
+                        <option value={paragraphCount + 1}>After the article text</option>
+                      </select>
+                    </label>
                     <button type="button" className="ghost-btn compact" onClick={() => removeInlineImage(index)}>Remove</button>
                   </div>
                 ))}
@@ -1251,7 +1309,7 @@ function PostCard({ post, profile, onChanged }) {
       {post.excerpt && <p className="article-excerpt">{post.excerpt}</p>}
       <p className="post-content">{post.content}</p>
 
-      {imageUrl && <img className="post-image" src={imageUrl} alt="Post upload" loading="lazy" />}
+      {imageUrl && <img className="post-image image-fade-in" src={imageUrl} alt="Post upload" loading="lazy" decoding="async" />}
 
       {youtubeId && (
         <div className="video-frame">
@@ -1561,7 +1619,7 @@ function PublicArticleCard({ post, onOpen }) {
   const imageUrl = post.image_path ? supabase.storage.from(BUCKET).getPublicUrl(post.image_path).data.publicUrl : '';
   return (
     <article className="public-article-card glass-card" onClick={() => onOpen?.(post)} role="button" tabIndex={0}>
-      {imageUrl && <img src={imageUrl} alt="Article cover" loading="lazy" />}
+      {imageUrl && <img src={imageUrl} alt="Article cover" loading="lazy" decoding="async" />}
       <div className="public-article-body">
         <span className="kind-pill">{categoryCaps(post.category)}</span>
         <h2>{post.title || editorialTitle(post.content)}</h2>
@@ -1578,7 +1636,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
   const [activeSlide, setActiveSlide] = useState(0);
   const openArticle = useCallback((article) => {
     if (!article?.id) return;
-    window.location.assign(`/article/${article.id}`);
+    navigateTo(`/article/${article.id}`);
   }, []);
 
   const loadArticles = useCallback(async () => {
@@ -1618,12 +1676,19 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
 
   const currentImage = current?.image_path ? publicAssetUrl(BUCKET, current.image_path) : (settings.hero_url || BRAND_HERO);
 
+  useEffect(() => {
+    preloadImage(currentImage);
+    featured.slice(0, 3).forEach((item) => {
+      if (item?.image_path) preloadImage(publicAssetUrl(BUCKET, item.image_path));
+    });
+  }, [currentImage, featured]);
+
   return (
     <main className="public-site-shell port24-public-shell">
       <header className="public-topbar port24-topbar glass-card">
         <div className="brand-lockup"><BrandMark settings={settings} /><div><strong>{settings.site_title || APP_NAME}</strong><small>{settings.header_tagline}</small></div></div>
         {profile && (
-          <button className="ghost-btn compact" type="button" onClick={() => window.location.assign('/editor')}>
+          <button className="ghost-btn compact" type="button" onClick={() => navigateTo('/editor')}>
             Editor
           </button>
         )}
@@ -1713,7 +1778,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
   const [error, setError] = useState('');
 
   const goHome = useCallback(() => {
-    window.location.assign('/');
+    navigateTo('/');
   }, []);
 
   const loadArticle = useCallback(async () => {
@@ -1759,7 +1824,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
           <div><strong>{settings.site_title || APP_NAME}</strong><small>{settings.header_tagline}</small></div>
         </button>
         {profile && (
-          <button className="ghost-btn compact" type="button" onClick={() => window.location.assign('/editor')}>
+          <button className="ghost-btn compact" type="button" onClick={() => navigateTo('/editor')}>
             Editor
           </button>
         )}
@@ -1784,7 +1849,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
             key={item}
             className={(article?.category === item || (!article?.category && item === 'all')) ? 'active' : ''}
             type="button"
-            onClick={() => window.location.assign('/')}
+            onClick={() => navigateTo('/')}
           >
             <span>{item === 'all' ? 'Όλα' : categoryLabel(item)}</span>
           </button>
@@ -1804,7 +1869,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
 
       {!loading && article && (
         <article className="article-page-card glass-card">
-          {article.image_path && <img className="article-page-cover" src={publicAssetUrl(BUCKET, article.image_path)} alt="Article cover" />}
+          {article.image_path && <img className="article-page-cover image-fade-in" src={publicAssetUrl(BUCKET, article.image_path)} alt="Article cover" loading="eager" decoding="async" fetchPriority="high" />}
           <div className="article-page-content">
             <span className="kind-pill">{categoryCaps(article.category)}</span>
             <h1>{article.title || editorialTitle(article.content)}</h1>
@@ -1813,12 +1878,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
               <span>Γράφει: <strong>{displayUser(article.profiles)}</strong> · {formatTime(article.created_at)}</span>
             </div>
             {article.excerpt && <p className="article-page-excerpt">{article.excerpt}</p>}
-            <div className="article-reader-content article-page-body">
-              {normalizeParagraphs(article.content).map((paragraph, index) => (
-                <p key={index}>{paragraph}</p>
-              ))}
-            </div>
-            <ArticleMediaGallery images={article.extra_images} />
+            <ArticleContentWithImages content={article.content} images={article.extra_images} />
             {parseMediaLinks([article.video_url, ...safeJsonArray(article.media_urls)].filter(Boolean).join('\n')).map((url, index) => (
               <MediaEmbed key={`${url}-${index}`} url={url} />
             ))}
@@ -2029,7 +2089,7 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
         <div>
           <span className="eyebrow">ADMIN SITE SETTINGS</span>
           <h1>Customize the logo, hero image and wording.</h1>
-          <p>Replace the default crest from here. The selected logo is used in the top bar, invite screen, privacy shield and browser tab icon after saving.</p>
+          <p>Replace the default crest from here. The selected logo is used in the top bar, invite screen, article pages and browser tab icon after saving.</p>
         </div>
         <button className="ghost-btn" type="button" onClick={goBack}>Back to blog</button>
       </section>
@@ -2047,7 +2107,7 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
 
           <div className="logo-upload-box">
             <div className="logo-upload-preview">
-              <img src={effectiveLogo} alt="Current site logo preview" />
+              <img src={effectiveLogo} alt="Current site logo preview" loading="lazy" decoding="async" />
             </div>
             <div>
               <strong>Replace default logo</strong>
@@ -3813,7 +3873,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
       {lead && (
         <section className="public-layout">
           <article className="public-lead-card glass-card" onClick={() => setSelected(lead)} role="button" tabIndex={0}>
-            {lead.image_path && <img src={publicAssetUrl(BUCKET, lead.image_path)} alt="Article cover" />}
+            {lead.image_path && <img src={publicAssetUrl(BUCKET, lead.image_path)} alt="Article cover" loading="eager" decoding="async" fetchPriority="high" />}
             <div>
               <span className="article-category-pill">{categoryCaps(lead.category)}</span>
               <h2>{lead.title || lead.content.slice(0, 90)}</h2>
@@ -3836,7 +3896,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
       <section className="public-grid">
         {rest.map((article) => (
           <article className="public-article-card glass-card" key={article.id} onClick={() => setSelected(article)} role="button" tabIndex={0}>
-            {article.image_path && <img src={publicAssetUrl(BUCKET, article.image_path)} alt="Article cover" />}
+            {article.image_path && <img src={publicAssetUrl(BUCKET, article.image_path)} alt="Article cover" loading="lazy" decoding="async" />}
             <span className="article-category-pill">{categoryCaps(article.category)}</span>
             <h3>{article.title || article.content.slice(0, 80)}</h3>
             <p>{article.excerpt || article.content.slice(0, 160)}</p>
@@ -3849,7 +3909,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
         <div className="modal-backdrop article-reader-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
           <article className="article-reader glass-card">
             <button className="ghost-btn compact article-close" type="button" onClick={() => setSelected(null)}>Close</button>
-            {selected.image_path && <img className="article-reader-cover" src={publicAssetUrl(BUCKET, selected.image_path)} alt="Article cover" />}
+            {selected.image_path && <img className="article-reader-cover" src={publicAssetUrl(BUCKET, selected.image_path)} alt="Article cover" loading="eager" decoding="async" />}
             <span className="article-category-pill">{categoryCaps(selected.category)}</span>
             <h1>{selected.title || 'Port24 article'}</h1>
             <div className="article-byline">
@@ -3928,7 +3988,7 @@ function ArticleManager({ profile }) {
       <div className="editor-article-list">
         {articles.map((article) => (
           <article key={article.id} className="editor-article-row">
-            {article.image_path ? <img src={publicAssetUrl(BUCKET, article.image_path)} alt="" /> : <div className="article-placeholder-thumb">P24</div>}
+            {article.image_path ? <img src={publicAssetUrl(BUCKET, article.image_path)} alt="" loading="lazy" decoding="async" /> : <div className="article-placeholder-thumb">P24</div>}
             <div>
               <strong>{article.title || editorialTitle(article.content)}</strong>
               <small>{categoryLabel(article.category)} · {displayUser(article.profiles)} · {formatTime(article.created_at)}</small>
@@ -3987,6 +4047,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [siteSettings, setSiteSettings] = useState(DEFAULT_SITE_SETTINGS);
   const [view, setView] = useState('feed');
+  const [pageSettling, setPageSettling] = useState(true);
   const [showMemberGate, setShowMemberGate] = useState(new URLSearchParams(window.location.search).has('invite'));
   const rawPath = window.location.pathname.replace(/\/+$/, '');
   const currentPath = rawPath.toLowerCase();
@@ -4003,6 +4064,31 @@ function App() {
   useEffect(() => {
     applyDocumentBranding(siteSettings);
   }, [siteSettings]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setPageSettling(false), 240);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const preventContext = (event) => event.preventDefault();
+    const preventCopy = (event) => {
+      if (!allowCopyTarget(event.target)) event.preventDefault();
+    };
+    const preventSelect = (event) => {
+      if (!allowCopyTarget(event.target)) event.preventDefault();
+    };
+    document.addEventListener('contextmenu', preventContext);
+    document.addEventListener('copy', preventCopy);
+    document.addEventListener('cut', preventCopy);
+    document.addEventListener('selectstart', preventSelect);
+    return () => {
+      document.removeEventListener('contextmenu', preventContext);
+      document.removeEventListener('copy', preventCopy);
+      document.removeEventListener('cut', preventCopy);
+      document.removeEventListener('selectstart', preventSelect);
+    };
+  }, []);
 
   const loadProfile = useCallback(async (userId) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
@@ -4036,22 +4122,24 @@ function App() {
     return () => listener.subscription.unsubscribe();
   }, [loadProfile, refreshSiteSettings]);
 
-  if (!isConfigured()) return <SetupNotice settings={siteSettings} />;
-  if (loading) return <main className="setup-shell"><div className="glass-card loading-card">Loading members area…</div></main>;
+  if (!isConfigured()) return <><PageLoadingBar active={pageSettling} /><SetupNotice settings={siteSettings} /></>;
+  if (loading) return <><PageLoadingBar active /><main className="setup-shell"><div className="glass-card loading-card loading-state-card"><span className="loading-spinner" />Loading members area…</div></main></>;
   if (!session || !profile) {
-    if (articleId) return <ArticlePage settings={siteSettings} articleId={articleId} />;
+    if (articleId) return <><PageLoadingBar active={pageSettling} /><ArticlePage settings={siteSettings} articleId={articleId} /></>;
     const params = new URLSearchParams(window.location.search);
     const path = window.location.pathname.replace(/\/+$/, '').toLowerCase();
     if (params.has('invite') || params.has('login') || path === '/editor' || path === '/login') {
-      return <InviteGate onProfileReady={setProfile} settings={siteSettings} session={session} />;
+      return <><PageLoadingBar active={pageSettling} /><InviteGate onProfileReady={setProfile} settings={siteSettings} session={session} /></>;
     }
-    return <PublicFrontPage settings={siteSettings} />;
+    return <><PageLoadingBar active={pageSettling} /><PublicFrontPage settings={siteSettings} /></>;
   }
 
-  if (articleId) return <ArticlePage settings={siteSettings} articleId={articleId} profile={profile} />;
+  if (articleId) return <><PageLoadingBar active={pageSettling} /><ArticlePage settings={siteSettings} articleId={articleId} profile={profile} /></>;
 
   return (
-    <Shell profile={profile} setProfile={setProfile} settings={siteSettings} view={view} setView={setView}>
+    <>
+      <PageLoadingBar active={pageSettling} />
+      <Shell profile={profile} setProfile={setProfile} settings={siteSettings} view={view} setView={setView}>
       {view === 'admin-site' && profile.role === 'admin' ? (
         <AdminSiteSettings
           settings={siteSettings}
@@ -4067,7 +4155,8 @@ function App() {
       )}
       <ChatPanel profile={profile} />
       <footer className="footer-note">{siteSettings.footer_text}</footer>
-    </Shell>
+      </Shell>
+    </>
   );
 }
 
