@@ -7,7 +7,7 @@ import './styles.css';
 const BUCKET = 'post-images';
 const SITE_ASSETS_BUCKET = 'site-assets';
 const PROFILE_IMAGES_BUCKET = 'profile-images';
-const APP_NAME = 'Port24';
+const APP_NAME = 'Thrylos United';
 const BRAND_LOGO_CANDIDATES = ['/brand/port24-logo.png', '/brand/olympiacos-logo.png', '/brand/community-crest.svg'];
 const BRAND_HERO = '/brand/red-white-hero.svg';
 const OFFICIAL_HERO = '/brand/olympiacos-hero.jpg';
@@ -46,20 +46,34 @@ function friendlyMicError(error) {
 
 
 const DEFAULT_SITE_SETTINGS = {
-  site_title: 'Port24',
+  site_title: 'Thrylos United',
   tagline: 'Ολυμπιακός blog με υπογραφή.',
   header_tagline: 'Independent red-white blog & community',
   gate_heading: 'The private red-white blog for matchday, news and member opinions.',
   gate_intro: 'Read columns, publish reactions, share images and YouTube clips, follow matchday notes, and keep live talk inside general, private and group rooms.',
-  feed_eyebrow: 'PORT24 · RED-WHITE BOARD',
+  feed_eyebrow: 'THRYLOS UNITED · RED-WHITE COMMUNITY',
   feed_heading: 'Latest texts, red notes, opinions and member posts.',
   feed_intro: 'An editorial-style members area inspired by modern sports blogs: featured notes, latest texts, columns, media posts, member rooms and live voice.',
-  community_title: 'Port24 community hub',
+  community_title: 'Thrylos United community hub',
   community_text: 'A clean private board for general Olympiakos discussion, matchday reactions, news links, columns, media and live rooms.',
-  footer_text: 'Port24 · private red-white members area.',
+  footer_text: 'Thrylos United · independent red-white community.',
   logo_url: '',
   hero_url: '',
 };
+
+
+function cleanBrandText(value, fallback = '') {
+  const raw = String(value ?? fallback ?? '');
+  return raw
+    .replace(/PORT\s*24/gi, 'Thrylos United')
+    .replace(/Port24/gi, 'Thrylos United')
+    .replace(/PORT24/g, 'THRYLOS UNITED');
+}
+
+function cleanPublicEyebrow(value) {
+  const cleaned = cleanBrandText(value || 'THRYLOS UNITED').trim();
+  return cleaned || 'THRYLOS UNITED';
+}
 
 const CHAT_COLORS = ['#e31b2f', '#ffffff', '#ffb703', '#2dd4bf', '#60a5fa', '#c084fc', '#fb7185', '#34d399'];
 const AUTH_EMAIL_DOMAIN = 'members.port24.invalid';
@@ -349,7 +363,7 @@ async function createCleanWavFromRecording(blob) {
 }
 
 function applyDocumentBranding(settings = DEFAULT_SITE_SETTINGS) {
-  const title = settings.site_title || APP_NAME;
+  const title = cleanBrandText(settings.site_title, APP_NAME);
   document.title = title;
 
   const faviconUrl = settings.logo_url || '/favicon.svg';
@@ -602,8 +616,8 @@ function SetupNotice({ settings = DEFAULT_SITE_SETTINGS }) {
         <div className="brand-lockup big">
           <BrandMark large settings={settings} />
           <div>
-            <strong>{settings.site_title || APP_NAME}</strong>
-            <small>{settings.tagline}</small>
+            <strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong>
+            <small>{cleanBrandText(settings.tagline, DEFAULT_SITE_SETTINGS.tagline)}</small>
           </div>
         </div>
         <h1>Connect Supabase first</h1>
@@ -720,8 +734,8 @@ function InviteGate({ onProfileReady, settings = DEFAULT_SITE_SETTINGS, session 
         <div className="brand-lockup big">
           <BrandMark large settings={settings} />
           <div>
-            <strong>{settings.site_title || APP_NAME}</strong>
-            <small>{settings.tagline}</small>
+            <strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong>
+            <small>{cleanBrandText(settings.tagline, DEFAULT_SITE_SETTINGS.tagline)}</small>
           </div>
         </div>
         <h1>{settings.gate_heading}</h1>
@@ -871,7 +885,7 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
         eyebrow="ACCOUNT SESSION"
         mark="↪"
         tone="neutral"
-        title="Sign out of Port24?"
+        title="Sign out of Thrylos United?"
         body="You will return to the public front page. You can log back in from the hidden editor page using your handle and password."
         confirmLabel="Sign out"
         cancelLabel="Stay logged in"
@@ -882,8 +896,8 @@ function Shell({ profile, setProfile, settings = DEFAULT_SITE_SETTINGS, view, se
         <div className="brand-lockup">
           <BrandMark settings={settings} />
           <div>
-            <strong>{settings.site_title || APP_NAME}</strong>
-            <small>{settings.header_tagline}</small>
+            <strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong>
+            <small>{cleanBrandText(settings.header_tagline, DEFAULT_SITE_SETTINGS.header_tagline)}</small>
           </div>
         </div>
         <div className="user-chip">
@@ -1086,7 +1100,7 @@ function Composer({ profile, onCreated }) {
       <form className="composer glass-card article-composer pro-article-composer" onSubmit={submit}>
         <div className="composer-head pro-composer-head">
           <div>
-            <span className="eyebrow">PORT24 STUDIO</span>
+            <span className="eyebrow">THRYLOS UNITED STUDIO</span>
             <h2>New article</h2>
             <p>Write long-form posts with a cover image, inline media, sources and live preview before publishing.</p>
           </div>
@@ -1360,9 +1374,9 @@ function FeedHero({ profile, settings = DEFAULT_SITE_SETTINGS }) {
   return (
     <section className="feed-hero glass-card" style={{ '--hero-image': `url(${settings.hero_url || BRAND_HERO})`, '--official-hero-image': `url(${settings.hero_url || OFFICIAL_HERO})` }}>
       <div className="feed-hero-copy">
-        <span className="eyebrow">{settings.feed_eyebrow}</span>
-        <h1>{settings.feed_heading}</h1>
-        <p>{settings.feed_intro}</p>
+        <span className="eyebrow">{cleanPublicEyebrow(settings.feed_eyebrow)}</span>
+        <h1>{cleanBrandText(settings.feed_heading, DEFAULT_SITE_SETTINGS.feed_heading)}</h1>
+        <p>{cleanBrandText(settings.feed_intro, DEFAULT_SITE_SETTINGS.feed_intro)}</p>
       </div>
       <div className="feed-hero-card">
         <strong>@{profile.handle}</strong>
@@ -1464,7 +1478,7 @@ function EditorialBoard({ posts, profile, settings = DEFAULT_SITE_SETTINGS, onFi
             <>
               <span className="kind-pill">Start</span>
               <h2>Build the first front-page story.</h2>
-              <p>Use the composer below to publish the first Port24 text, news item, image or video.</p>
+              <p>Use the composer below to publish the first Thrylos United text, news item, image or video.</p>
             </>
           )}
         </div>
@@ -1501,8 +1515,8 @@ function EditorialBoard({ posts, profile, settings = DEFAULT_SITE_SETTINGS, onFi
       <div className="editorial-strip glass-card">
         <div>
           <span className="eyebrow">COMMUNITY</span>
-          <strong>{settings.community_title}</strong>
-          <p>{settings.community_text}</p>
+          <strong>{cleanBrandText(settings.community_title, DEFAULT_SITE_SETTINGS.community_title)}</strong>
+          <p>{cleanBrandText(settings.community_text, DEFAULT_SITE_SETTINGS.community_text)}</p>
         </div>
         <div className="strip-actions">
           <button type="button" className="ghost-btn compact" onClick={() => onFilter?.('all')}>Latest feed</button>
@@ -1686,7 +1700,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
   return (
     <main className="public-site-shell port24-public-shell">
       <header className="public-topbar port24-topbar glass-card">
-        <div className="brand-lockup"><BrandMark settings={settings} /><div><strong>{settings.site_title || APP_NAME}</strong><small>{settings.header_tagline}</small></div></div>
+        <div className="brand-lockup"><BrandMark settings={settings} /><div><strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong><small>{cleanBrandText(settings.header_tagline, DEFAULT_SITE_SETTINGS.header_tagline)}</small></div></div>
         {profile && (
           <button className="ghost-btn compact" type="button" onClick={() => navigateTo('/editor')}>
             Editor
@@ -1694,11 +1708,11 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
         )}
       </header>
 
-      <section className="public-hero port24-hero glass-card">
+      <section className="public-hero port24-hero glass-card" style={{ '--hero-image': `url(${settings.hero_url || BRAND_HERO})` }}>
         <div className="hero-copy">
-          <span className="eyebrow">PORT24</span>
-          <h1>Όλος ο Ολυμπιακός σε άρθρα, απόψεις και ρεπορτάζ με υπογραφή.</h1>
-          <p>Ποδόσφαιρο, μπάσκετ, Ερασιτέχνης, μεταγραφές, γνώμες και media από τους συντάκτες της κοινότητας.</p>
+          <span className="eyebrow">THRYLOS UNITED</span>
+          <h1>Όλος ο ερυθρόλευκος παλμός σε άρθρα, απόψεις και ρεπορτάζ.</h1>
+          <p>Ποδόσφαιρο, μπάσκετ, Ερασιτέχνης, μεταγραφές, γνώμες και media από την κοινότητα του Thrylos United.</p>
         </div>
         <div className="hero-stat-strip">
           <span><b>{articles.length}</b> άρθρα</span>
@@ -1821,7 +1835,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
       <header className="public-topbar port24-topbar glass-card article-page-topbar">
         <button className="brand-lockup logo-home-button" type="button" onClick={goHome} aria-label="Back to front page">
           <BrandMark settings={settings} />
-          <div><strong>{settings.site_title || APP_NAME}</strong><small>{settings.header_tagline}</small></div>
+          <div><strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong><small>{cleanBrandText(settings.header_tagline, DEFAULT_SITE_SETTINGS.header_tagline)}</small></div>
         </button>
         {profile && (
           <button className="ghost-btn compact" type="button" onClick={() => navigateTo('/editor')}>
@@ -1830,11 +1844,11 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
         )}
       </header>
 
-      <section className="public-hero port24-hero glass-card article-page-hero">
+      <section className="public-hero port24-hero glass-card article-page-hero" style={{ '--hero-image': `url(${settings.hero_url || BRAND_HERO})` }}>
         <div className="hero-copy">
-          <span className="eyebrow">PORT24</span>
-          <h1>Όλος ο Ολυμπιακός σε άρθρα, απόψεις και ρεπορτάζ με υπογραφή.</h1>
-          <p>Ποδόσφαιρο, μπάσκετ, Ερασιτέχνης, μεταγραφές, γνώμες και media από τους συντάκτες της κοινότητας.</p>
+          <span className="eyebrow">THRYLOS UNITED</span>
+          <h1>Όλος ο ερυθρόλευκος παλμός σε άρθρα, απόψεις και ρεπορτάζ.</h1>
+          <p>Ποδόσφαιρο, μπάσκετ, Ερασιτέχνης, μεταγραφές, γνώμες και media από την κοινότητα του Thrylos United.</p>
         </div>
         <div className="hero-stat-strip">
           <span><b>{article ? '1' : '•'}</b> άρθρο</span>
@@ -1860,7 +1874,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
 
       {!loading && error && (
         <section className="glass-card article-page-error">
-          <span className="eyebrow">PORT24</span>
+          <span className="eyebrow">THRYLOS UNITED</span>
           <h1>Δεν βρέθηκε το άρθρο.</h1>
           <p>{error}</p>
           <button className="primary-btn" type="button" onClick={goHome}>Επιστροφή στην αρχική</button>
@@ -2100,7 +2114,7 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
           <div className="brand-preview-row brand-preview-strong">
             <BrandMark large settings={liveLogoSettings} />
             <div>
-              <strong>{form.site_title || APP_NAME}</strong>
+              <strong>{cleanBrandText(form.site_title, APP_NAME)}</strong>
               <small>{logoFile ? `Ready to replace with ${logoFile.name}` : form.logo_url ? 'Custom logo active' : 'Using fallback crest'}</small>
             </div>
           </div>
@@ -3849,16 +3863,16 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
         <div className="brand-lockup">
           <BrandMark settings={settings} />
           <div>
-            <strong>{settings.site_title || APP_NAME}</strong>
-            <small>{settings.header_tagline}</small>
+            <strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong>
+            <small>{cleanBrandText(settings.header_tagline, DEFAULT_SITE_SETTINGS.header_tagline)}</small>
           </div>
         </div>
         <button className="primary-btn compact" type="button" onClick={onEnterMembers}>Σύνδεση</button>
       </header>
 
       <section className="public-hero glass-card" style={{ '--hero-image': `url(${settings.hero_url || BRAND_HERO})` }}>
-        <span className="eyebrow">PORT24</span>
-        <h1>Άρθρα, γνώμες και νέα για όλο τον Ολυμπιακό.</h1>
+        <span className="eyebrow">THRYLOS UNITED</span>
+        <h1>Άρθρα, γνώμες και νέα από την ερυθρόλευκη κοινότητα.</h1>
         <p>Διάβασε κείμενα ανά κατηγορία: μπάσκετ, ποδόσφαιρο, ερασιτέχνης, μεταγραφές, media και απόψεις.</p>
         <div className="public-category-row">
           {ARTICLE_CATEGORIES.map((item) => (
@@ -3911,7 +3925,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
             <button className="ghost-btn compact article-close" type="button" onClick={() => setSelected(null)}>Close</button>
             {selected.image_path && <img className="article-reader-cover" src={publicAssetUrl(BUCKET, selected.image_path)} alt="Article cover" loading="eager" decoding="async" />}
             <span className="article-category-pill">{categoryCaps(selected.category)}</span>
-            <h1>{selected.title || 'Port24 article'}</h1>
+            <h1>{selected.title || 'Thrylos United article'}</h1>
             <div className="article-byline">
               <UserAvatar profile={selected.profiles} className="comment-avatar" />
               <span>By <strong>{displayUser(selected.profiles)}</strong> · {formatTime(selected.created_at)}</span>
@@ -4016,8 +4030,8 @@ function EditorDashboard({ profile, setProfile, settings, setView }) {
     <main className="editor-studio-page">
       <section className="editor-studio-hero glass-card">
         <div>
-          <span className="eyebrow">PORT24 STUDIO</span>
-          <h1>Port24 publishing studio</h1>
+          <span className="eyebrow">THRYLOS UNITED STUDIO</span>
+          <h1>Thrylos United publishing studio</h1>
           <p>Write articles, preview them, manage published texts and update your writer profile.</p>
         </div>
         <div className="editor-quick-actions">

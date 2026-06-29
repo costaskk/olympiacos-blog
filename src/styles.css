@@ -3666,7 +3666,7 @@ body {
   margin-left: -7px;
 }
 
-/* v5.8 Port24 editorial front page inspired by modern sports-blog logic */
+/* Editorial front page inspired by modern sports-blog logic */
 .editorial-board {
   display: grid;
   grid-template-columns: 1.05fr 1.65fr 0.95fr;
@@ -4236,9 +4236,10 @@ body {
 }
 .port24-hero::before {
   background:
-    linear-gradient(120deg, rgba(10, 10, 16, .98), rgba(16, 18, 27, .86) 54%, rgba(225, 0, 27, .2)),
-    var(--hero-image, url('/brand/red-white-hero.svg')) right center / 52% auto no-repeat;
-  opacity: .9;
+    linear-gradient(90deg, rgba(5, 6, 10, .92) 0%, rgba(7, 8, 13, .82) 38%, rgba(40, 0, 8, .58) 72%, rgba(160, 0, 20, .34) 100%),
+    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, .08), transparent 22rem),
+    var(--hero-image, url('/brand/red-white-hero.svg')) center center / cover no-repeat;
+  opacity: .98;
 }
 .port24-hero .hero-copy,
 .port24-hero .hero-stat-strip { position: relative; z-index: 2; }
@@ -4986,8 +4987,8 @@ select {
   .port24-hero::before,
   .article-page-hero::before {
     background:
-      linear-gradient(120deg, rgba(10,10,16,.98), rgba(16,18,27,.90) 58%, rgba(225,0,27,.18)),
-      var(--hero-image, url('/brand/red-white-hero.svg')) right bottom / 58% auto no-repeat;
+      linear-gradient(90deg, rgba(5,6,10,.94), rgba(8,9,15,.84) 42%, rgba(120,0,18,.32)),
+      var(--hero-image, url('/brand/red-white-hero.svg')) center center / cover no-repeat;
   }
 
   .port24-hero h1,
@@ -5856,5 +5857,44 @@ button:active,
   .article-inline-figure figcaption {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+
+/* v7.7 Thrylos United branding cleanup and hero background fix */
+.public-hero.port24-hero,
+.article-page-hero {
+  overflow: hidden;
+  isolation: isolate;
+}
+.public-hero.port24-hero::after,
+.article-page-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.055), transparent 26%),
+    radial-gradient(circle at 9% 18%, rgba(227,27,47,.18), transparent 20rem),
+    linear-gradient(90deg, rgba(0,0,0,.22), transparent 44%);
+  mix-blend-mode: screen;
+  opacity: .55;
+}
+.public-hero.port24-hero .eyebrow,
+.article-page-hero .eyebrow {
+  color: #ffc7cf;
+}
+.public-hero.port24-hero .hero-copy,
+.article-page-hero .hero-copy {
+  max-width: 980px;
+  text-shadow: 0 14px 34px rgba(0,0,0,.46);
+}
+@media (max-width: 720px) {
+  .public-hero.port24-hero::before,
+  .article-page-hero::before {
+    background:
+      linear-gradient(180deg, rgba(5,6,10,.92), rgba(8,9,15,.84) 58%, rgba(95,0,15,.34)),
+      var(--hero-image, url('/brand/red-white-hero.svg')) center center / cover no-repeat;
   }
 }
