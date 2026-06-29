@@ -424,6 +424,115 @@ function categoryCaps(category) {
 }
 
 
+
+function getAthensParts(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Athens',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return parts;
+}
+
+function athensFormat(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('el-GR', {
+    timeZone: 'Europe/Athens',
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function isoToAthensLocalInput(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return defaultAthensScheduleInput(1);
+  const parts = getAthensParts(date);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+function getAthensOffsetMinutes(date) {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Athens',
+      timeZoneName: 'shortOffset',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const tz = formatter.formatToParts(date).find((part) => part.type === 'timeZoneName')?.value || 'GMT+2';
+    const match = tz.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/i);
+    if (!match) return 120;
+    const sign = match[1] === '-' ? -1 : 1;
+    const hours = Number(match[2] || 0);
+    const minutes = Number(match[3] || 0);
+    return sign * (hours * 60 + minutes);
+  } catch {
+    return 120;
+  }
+}
+
+function athensLocalInputToIso(value) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const [, y, m, d, h, min] = match.map(Number);
+  const utcGuess = new Date(Date.UTC(y, m - 1, d, h, min, 0));
+  const offset = getAthensOffsetMinutes(utcGuess);
+  return new Date(Date.UTC(y, m - 1, d, h, min, 0) - offset * 60000).toISOString();
+}
+
+function defaultAthensScheduleInput(hoursAhead = 1) {
+  return isoToAthensLocalInput(new Date(Date.now() + Number(hoursAhead || 1) * 60 * 60 * 1000));
+}
+
+function articleStatus(article) {
+  if (!article) return 'published';
+  const raw = String(article.status || 'published').toLowerCase();
+  if (raw === 'hidden' || raw === 'draft') return 'hidden';
+  if (raw === 'scheduled') {
+    const date = article.published_at ? new Date(article.published_at) : null;
+    if (date && !Number.isNaN(date.getTime()) && date.getTime() > Date.now()) return 'scheduled';
+    return 'published';
+  }
+  const date = article.published_at ? new Date(article.published_at) : null;
+  if (date && !Number.isNaN(date.getTime()) && date.getTime() > Date.now()) return 'scheduled';
+  return 'published';
+}
+
+function articleStatusLabel(article) {
+  const status = articleStatus(article);
+  if (status === 'scheduled') return 'Scheduled';
+  if (status === 'hidden') return 'Hidden';
+  return 'Published';
+}
+
+function PublishCountdown({ value }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const target = value ? new Date(value).getTime() : 0;
+  if (!target || Number.isNaN(target) || target <= now) return <span>public now</span>;
+  const diff = Math.max(0, target - now);
+  const days = Math.floor(diff / 86400000);
+  const hours = Math.floor((diff % 86400000) / 3600000);
+  const minutes = Math.floor((diff % 3600000) / 60000);
+  const seconds = Math.floor((diff % 60000) / 1000);
+  const text = days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m ${seconds}s`;
+  return <span>{text}</span>;
+}
+
 function safeJsonArray(value) {
   if (Array.isArray(value)) return value;
   if (!value) return [];
@@ -1777,7 +1886,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
     let query = supabase
       .from('articles')
       .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
-      .eq('status', 'published')
+      .in('status', ['published', 'scheduled'])
       .lte('published_at', new Date().toISOString())
       .order('published_at', { ascending: false })
       .limit(60);
@@ -3956,7 +4065,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
     let query = supabase
       .from('articles')
       .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
-      .eq('status', 'published')
+      .in('status', ['published', 'scheduled'])
       .lte('published_at', new Date().toISOString())
       .order('published_at', { ascending: false })
       .limit(60);

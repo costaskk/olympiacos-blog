@@ -250,7 +250,7 @@ update public.articles set category = 'opinion' where category is null or catego
 -- It used to re-import deleted/old articles every time this schema was rerun.
 -- If you ever need a one-time legacy import, run it manually from a separate backup script.
 
-create index if not exists articles_public_feed_idx on public.articles (published_at desc) where status = 'published';
+create index if not exists articles_public_feed_idx on public.articles (published_at desc) where status in ('published', 'scheduled');
 create index if not exists articles_author_status_idx on public.articles (author_id, status, created_at desc);
 
 create table if not exists public.comments (
@@ -857,7 +857,7 @@ using (author_id = auth.uid() or public.is_full_admin());
 drop policy if exists articles_public_select_published on public.articles;
 create policy articles_public_select_published on public.articles
 for select to anon, authenticated
-using ((status = 'published' and published_at <= now()) or author_id = auth.uid() or public.is_full_admin());
+using (((status = 'published' or status = 'scheduled') and published_at <= now()) or author_id = auth.uid() or public.is_full_admin());
 
 drop policy if exists articles_insert_writer on public.articles;
 create policy articles_insert_writer on public.articles
