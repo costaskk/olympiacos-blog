@@ -6406,3 +6406,22 @@ button:active,
     display: none;
   }
 }
+
+/* v8.7 writer profile editing polish */
+.profile-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .8rem;
+}
+
+.profile-edit-grid .tiny-note {
+  display: block;
+  margin-top: .25rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 720px) {
+  .profile-edit-grid {
+    grid-template-columns: 1fr;
+  }
+}

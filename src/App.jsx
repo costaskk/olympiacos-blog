@@ -4067,6 +4067,7 @@ function VoiceRoom({ profile, compact = false }) {
 }
 
 function ProfileCard({ profile, setProfile }) {
+  const [handle, setHandle] = useState(profile.handle || '');
   const [displayName, setDisplayName] = useState(profile.display_name || '');
   const [chatColor, setChatColor] = useState(userColor(profile));
   const [bio, setBio] = useState(profile.bio || '');
@@ -4076,6 +4077,7 @@ function ProfileCard({ profile, setProfile }) {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
+    setHandle(profile.handle || '');
     setDisplayName(profile.display_name || '');
     setChatColor(userColor(profile));
     setBio(profile.bio || '');
@@ -4085,10 +4087,33 @@ function ProfileCard({ profile, setProfile }) {
 
   async function saveProfile(e) {
     e.preventDefault();
+    const nextHandle = normalizeHandle(handle);
+    const nextDisplayName = displayName.trim();
+
+    if (nextHandle.length < 3) {
+      alert('Username must be at least 3 characters and can use letters, numbers and underscore only.');
+      return;
+    }
+    if (nextDisplayName.length < 1 || nextDisplayName.length > 48) {
+      alert('Display name must be 1-48 characters.');
+      return;
+    }
+
+    if (nextHandle !== profile.handle) {
+      const { error: authError } = await supabase.auth.updateUser({
+        email: memberLoginEmail(nextHandle),
+      });
+      if (authError) {
+        alert(friendlyAuthError(authError));
+        return;
+      }
+    }
+
     const { data, error } = await supabase
       .from('profiles')
       .update({
-        display_name: displayName.trim(),
+        handle: nextHandle,
+        display_name: nextDisplayName,
         chat_color: chatColor,
         bio: bio.trim(),
         avatar_url: avatarUrl || null,
@@ -4101,6 +4126,7 @@ function ProfileCard({ profile, setProfile }) {
       alert(error.message);
       return;
     }
+    setHandle(data.handle || nextHandle);
     setProfile(data);
     setSaved(true);
     setTimeout(() => setSaved(false), 1200);
@@ -4145,7 +4171,7 @@ function ProfileCard({ profile, setProfile }) {
       setAvatarPreview(oldPreview);
       URL.revokeObjectURL(localPreview);
     } else {
-      setAvatarUrl(path);
+      setAvatarUrl(publicUrl);
       setAvatarPreview(publicUrl);
       setProfile(data);
       setSaved(true);
@@ -4170,7 +4196,7 @@ function ProfileCard({ profile, setProfile }) {
     setProfile(data);
   }
 
-  const previewProfile = { ...profile, display_name: displayName, chat_color: chatColor, avatar_url: avatarPreview || avatarUrl };
+  const previewProfile = { ...profile, handle, display_name: displayName, chat_color: chatColor, avatar_url: avatarPreview || avatarUrl };
 
   return (
     <aside className="side-card glass-card">
@@ -4178,8 +4204,8 @@ function ProfileCard({ profile, setProfile }) {
       <div className="profile-big">
         <UserAvatar profile={previewProfile} className="avatar profile-photo" />
         <div>
-          <strong>@{profile.handle}</strong>
-          <small>{roleBadge(profile.role)}</small>
+          <strong>{displayName || profile.display_name || profile.handle}</strong>
+          <small>@{handle || profile.handle} · {roleBadge(profile.role)}</small>
         </div>
       </div>
       <form onSubmit={saveProfile} className="profile-form">
@@ -4189,10 +4215,18 @@ function ProfileCard({ profile, setProfile }) {
           <span>{avatarBusy ? 'Uploading…' : 'Upload an avatar. It appears instantly in chat and voice.'}</span>
         </label>
         {avatarPreview && <button className="ghost-btn compact" type="button" onClick={removeAvatar}>Remove profile image</button>}
-        <label>
-          Display name
-          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={48} required />
-        </label>
+        <div className="profile-edit-grid">
+          <label>
+            Username / login handle
+            <input value={handle} onChange={(e) => setHandle(normalizeHandle(e.target.value))} minLength={3} maxLength={24} required />
+            <small className="tiny-note">Changing this also changes the handle you use to log in.</small>
+          </label>
+          <label>
+            Display name / writer name
+            <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={48} required />
+            <small className="tiny-note">This is the name shown under your articles and in chat.</small>
+          </label>
+        </div>
         <label>
           Chat colour
           <div className="color-picker-row">

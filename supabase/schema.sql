@@ -830,7 +830,7 @@ with check (id = auth.uid());
 
 -- Prevent normal users from editing their own role through the browser.
 revoke update on public.profiles from authenticated;
-grant update (display_name, avatar_url, bio, chat_color, last_seen) on public.profiles to authenticated;
+grant update (handle, display_name, avatar_url, bio, chat_color, last_seen) on public.profiles to authenticated;
 
 drop policy if exists site_settings_public_select on public.site_settings;
 create policy site_settings_public_select on public.site_settings
