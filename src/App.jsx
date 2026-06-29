@@ -1988,8 +1988,9 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
   }, [loadArticles, nextScheduledPublicAt]);
 
   const featured = articles.slice(0, 5);
-  const current = featured[activeSlide] || articles[0] || null;
-  const rest = articles.filter((article) => article?.id !== current?.id);
+  const leadArticle = featured[0] || articles[0] || null;
+  const current = featured[activeSlide] || leadArticle || null;
+  const allArticleList = articles.filter((article) => article?.id !== leadArticle?.id);
 
   useEffect(() => {
     if (featured.length <= 1) return undefined;
@@ -2044,12 +2045,11 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
         <section className="front-feature-layout">
           <aside className="glass-card public-latest-rail port24-latest-rail front-latest-rail">
             <span className="eyebrow">ΤΕΛΕΥΤΑΙΑ ΚΕΙΜΕΝΑ</span>
-            {articles.slice(0, 12).map((post, index) => {
+            {articles.slice(0, 12).map((post) => {
               const thumb = articleCoverUrl(post, '');
               return (
                 <button key={post.id} type="button" onClick={() => openArticle(post)} className={post.id === current.id ? 'active' : ''}>
                   {thumb && <img src={thumb} alt="" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
-                  <b>{String(index + 1).padStart(2, '0')}</b>
                   <span><strong>{post.title || editorialTitle(post.content)}</strong><small>{formatTime(post.published_at || post.created_at)} · {categoryLabel(post.category)}</small></span>
                 </button>
               );
@@ -2082,14 +2082,14 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
         </section>
       )}
 
-      {rest.length > 0 && (
+      {allArticleList.length > 0 && (
         <section className="all-articles-feed glass-card">
           <div className="section-heading-line">
             <span className="eyebrow">ΟΛΑ ΤΑ ΑΡΘΡΑ</span>
-            <small>{rest.length} ακόμα άρθρα</small>
+            <small>{allArticleList.length} άρθρα στη ροή</small>
           </div>
           <div className="all-articles-scroll">
-            {rest.map((post) => <PublicArticleListItem key={post.id} post={post} onOpen={openArticle} />)}
+            {allArticleList.map((post) => <PublicArticleListItem key={post.id} post={post} onOpen={openArticle} />)}
           </div>
         </section>
       )}

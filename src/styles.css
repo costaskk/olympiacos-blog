@@ -6106,23 +6106,27 @@ button:active,
 }
 
 .front-latest-rail button {
-  grid-template-columns: 74px 34px 1fr;
+  grid-template-columns: 78px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  padding: 10px 0;
+  gap: 12px;
+  padding: 10px 8px;
   border-bottom-color: rgba(255, 255, 255, .18);
+  border-radius: 16px;
 }
 
 .front-latest-rail button.active,
 .front-latest-rail button:hover {
-  background: rgba(255, 255, 255, .11);
-  border-radius: 16px;
-  padding-inline: 8px;
+  background: rgba(255, 255, 255, .13);
+  transform: translateX(2px);
+}
+
+.front-latest-rail button.active {
+  box-shadow: inset 3px 0 0 rgba(255, 255, 255, .9);
 }
 
 .front-latest-rail img {
-  width: 74px;
-  height: 54px;
+  width: 78px;
+  height: 58px;
   object-fit: cover;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, .2);
@@ -6130,9 +6134,7 @@ button:active,
 }
 
 .front-latest-rail b {
-  color: #fff;
-  opacity: .95;
-  font-size: 1rem;
+  display: none;
 }
 
 .front-latest-rail strong {
@@ -6149,6 +6151,9 @@ button:active,
   gap: 16px;
   margin-top: clamp(16px, 2.4vw, 28px);
   padding: clamp(16px, 2.4vw, 24px);
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.085), rgba(255,255,255,.035)),
+    rgba(13, 15, 24, .96);
 }
 
 .section-heading-line {
@@ -6173,12 +6178,13 @@ button:active,
 
 .public-article-list-item {
   display: grid;
-  grid-template-columns: minmax(170px, 260px) minmax(0, 1fr);
+  grid-template-columns: minmax(170px, 250px) minmax(0, 1fr);
   gap: clamp(14px, 2vw, 22px);
   align-items: stretch;
   overflow: hidden;
   cursor: pointer;
-  padding: clamp(10px, 1.6vw, 14px);
+  padding: clamp(12px, 1.8vw, 16px);
+  min-height: 188px;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, .075), rgba(255, 255, 255, .035)),
     rgba(12, 14, 22, .9);
@@ -6197,7 +6203,7 @@ button:active,
 .article-list-image-fallback {
   width: 100%;
   height: 100%;
-  min-height: 150px;
+  min-height: 160px;
   aspect-ratio: 16 / 9;
   object-fit: cover;
   border-radius: 18px;
@@ -6222,7 +6228,7 @@ button:active,
 
 .article-list-copy h2 {
   margin: 0;
-  font-size: clamp(1.35rem, 2.4vw, 2.15rem);
+  font-size: clamp(1.25rem, 2.05vw, 1.9rem);
   line-height: 1.02;
   letter-spacing: -.045em;
 }
@@ -6255,7 +6261,7 @@ button:active,
   }
 
   .front-latest-rail button {
-    grid-template-columns: 80px 34px minmax(0, 1fr);
+    grid-template-columns: 80px minmax(0, 1fr);
   }
 }
 
@@ -6266,10 +6272,6 @@ button:active,
 
   .front-latest-rail button {
     grid-template-columns: 72px minmax(0, 1fr);
-  }
-
-  .front-latest-rail b {
-    display: none;
   }
 
   .public-article-list-item {
