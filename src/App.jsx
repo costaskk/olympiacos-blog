@@ -1914,6 +1914,26 @@ function PublicArticleCard({ post, onOpen }) {
   );
 }
 
+function PublicArticleListItem({ post, onOpen }) {
+  const author = post.profiles;
+  const imageUrl = articleCoverUrl(post, '');
+  return (
+    <article className="public-article-list-item glass-card" onClick={() => onOpen?.(post)} role="button" tabIndex={0}>
+      {imageUrl ? (
+        <img src={imageUrl} alt="Article cover" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
+      ) : (
+        <div className="article-list-image-fallback" aria-hidden="true">THRYLOS</div>
+      )}
+      <div className="article-list-copy">
+        <span className="kind-pill">{categoryCaps(post.category)}</span>
+        <h2>{post.title || editorialTitle(post.content)}</h2>
+        <p>{post.excerpt || String(post.content || '').replace(/\s+/g, ' ').slice(0, 260)}</p>
+        <small>Γράφει: <strong>{displayUser(author)}</strong> · {formatTime(post.published_at || post.created_at)}</small>
+      </div>
+    </article>
+  );
+}
+
 function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
   const [articles, setArticles] = useState([]);
   const [category, setCategory] = useState('all');
@@ -2021,45 +2041,56 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
       </nav>
 
       {current && (
-        <section className="article-carousel glass-card carousel-title-on-image carousel-title-only">
-          <button className="carousel-image" type="button" onClick={() => openArticle(current)} style={{ '--carousel-image': `url(${currentImage})` }} aria-label="Open featured article">
-            <span className="article-category-pill">{categoryCaps(current.category)}</span>
-            <span className="carousel-image-copy">
-              <span className="eyebrow">ΝΕΟ ΑΡΘΡΟ</span>
-              <strong>{current.title || editorialTitle(current.content)}</strong>
-              <small>{current.excerpt || String(current.content || '').replace(/\s+/g, ' ').slice(0, 180)}</small>
-            </span>
-          </button>
-          <div className="carousel-meta-strip">
-            <div className="carousel-byline">
-              <UserAvatar profile={current.profiles} className="comment-avatar" />
-              <span>Γράφει: <strong>{displayUser(current.profiles)}</strong><small>{formatTime(current.published_at || current.created_at)}</small></span>
-            </div>
-            {featured.length > 1 && (
-              <div className="carousel-dots" aria-label="Featured articles">
-                {featured.map((article, index) => (
-                  <button key={article.id} className={activeSlide === index ? 'active' : ''} type="button" onClick={() => setActiveSlide(index)} aria-label={`Show article ${index + 1}`} />
-                ))}
+        <section className="front-feature-layout">
+          <aside className="glass-card public-latest-rail port24-latest-rail front-latest-rail">
+            <span className="eyebrow">ΤΕΛΕΥΤΑΙΑ ΚΕΙΜΕΝΑ</span>
+            {articles.slice(0, 12).map((post, index) => {
+              const thumb = articleCoverUrl(post, '');
+              return (
+                <button key={post.id} type="button" onClick={() => openArticle(post)} className={post.id === current.id ? 'active' : ''}>
+                  {thumb && <img src={thumb} alt="" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+                  <b>{String(index + 1).padStart(2, '0')}</b>
+                  <span><strong>{post.title || editorialTitle(post.content)}</strong><small>{formatTime(post.published_at || post.created_at)} · {categoryLabel(post.category)}</small></span>
+                </button>
+              );
+            })}
+          </aside>
+
+          <section className="article-carousel glass-card carousel-title-on-image carousel-title-only">
+            <button className="carousel-image" type="button" onClick={() => openArticle(current)} style={{ '--carousel-image': `url(${currentImage})` }} aria-label="Open featured article">
+              <span className="article-category-pill">{categoryCaps(current.category)}</span>
+              <span className="carousel-image-copy">
+                <span className="eyebrow">ΝΕΟ ΑΡΘΡΟ</span>
+                <strong>{current.title || editorialTitle(current.content)}</strong>
+                <small>{current.excerpt || String(current.content || '').replace(/\s+/g, ' ').slice(0, 180)}</small>
+              </span>
+            </button>
+            <div className="carousel-meta-strip">
+              <div className="carousel-byline">
+                <UserAvatar profile={current.profiles} className="comment-avatar" />
+                <span>Γράφει: <strong>{displayUser(current.profiles)}</strong><small>{formatTime(current.published_at || current.created_at)}</small></span>
               </div>
-            )}
-          </div>
+              {featured.length > 1 && (
+                <div className="carousel-dots" aria-label="Featured articles">
+                  {featured.map((article, index) => (
+                    <button key={article.id} className={activeSlide === index ? 'active' : ''} type="button" onClick={() => setActiveSlide(index)} aria-label={`Show article ${index + 1}`} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
         </section>
       )}
 
-      {articles.length > 0 && (
-        <section className="public-lead-grid port24-editorial-grid">
-          <div className="public-article-grid port24-article-grid">
-            {rest.map((post) => <PublicArticleCard key={post.id} post={post} onOpen={openArticle} />)}
+      {rest.length > 0 && (
+        <section className="all-articles-feed glass-card">
+          <div className="section-heading-line">
+            <span className="eyebrow">ΟΛΑ ΤΑ ΑΡΘΡΑ</span>
+            <small>{rest.length} ακόμα άρθρα</small>
           </div>
-          <aside className="glass-card public-latest-rail port24-latest-rail">
-            <span className="eyebrow">ΤΕΛΕΥΤΑΙΑ ΚΕΙΜΕΝΑ</span>
-            {articles.slice(0, 10).map((post, index) => (
-              <button key={post.id} type="button" onClick={() => openArticle(post)}>
-                <b>{String(index + 1).padStart(2, '0')}</b>
-                <span><strong>{post.title || editorialTitle(post.content)}</strong><small>{displayUser(post.profiles)} · {categoryLabel(post.category)}</small></span>
-              </button>
-            ))}
-          </aside>
+          <div className="all-articles-scroll">
+            {rest.map((post) => <PublicArticleListItem key={post.id} post={post} onOpen={openArticle} />)}
+          </div>
         </section>
       )}
 
