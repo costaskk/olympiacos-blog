@@ -10,6 +10,8 @@ const PROFILE_IMAGES_BUCKET = 'profile-images';
 const APP_NAME = 'Thrylos United';
 const BRAND_LOGO_CANDIDATES = ['/brand/port24-logo.png', '/brand/olympiacos-logo.png', '/brand/community-crest.svg'];
 const BRAND_HERO = '/brand/red-white-hero.svg';
+const MAGAZINE_LOGO = '/brand/thrylos-united-lion-crest.svg';
+const MAGAZINE_HERO = '/brand/thrylos-red-stand-hero.svg';
 const OFFICIAL_HERO = '/brand/olympiacos-hero.jpg';
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
 const MIC_CONSTRAINTS = {
@@ -1933,6 +1935,254 @@ function PublicArticleListItem({ post, onOpen }) {
         </div>
       </div>
     </article>
+  );
+}
+
+
+function MagazineLogo({ settings = DEFAULT_SITE_SETTINGS }) {
+  return (
+    <img
+      className="magazine-brand-logo"
+      src={MAGAZINE_LOGO}
+      alt={`${cleanBrandText(settings.site_title, APP_NAME)} logo`}
+      loading="eager"
+      decoding="async"
+      onError={(event) => {
+        event.currentTarget.onerror = null;
+        event.currentTarget.src = settings?.logo_url || BRAND_LOGO_CANDIDATES[0];
+      }}
+    />
+  );
+}
+
+function PublicMagazineLatestItem({ post, onOpen }) {
+  const thumb = articleCoverUrl(post, '');
+  return (
+    <button className="magazine-latest-item" type="button" onClick={() => onOpen?.(post)}>
+      {thumb ? (
+        <img src={thumb} alt="" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
+      ) : (
+        <span className="magazine-thumb-fallback" aria-hidden="true">TU</span>
+      )}
+      <span>
+        <em>{categoryCaps(post.category)}</em>
+        <strong>{post.title || editorialTitle(post.content)}</strong>
+        <small>{formatTime(post.published_at || post.created_at)}</small>
+      </span>
+    </button>
+  );
+}
+
+function PublicMagazineArticleCard({ post, onOpen }) {
+  const author = post.profiles;
+  const imageUrl = articleCoverUrl(post, '');
+  return (
+    <article className="magazine-article-card" onClick={() => onOpen?.(post)} role="button" tabIndex={0}>
+      {imageUrl ? (
+        <img src={imageUrl} alt="Article cover" loading="lazy" decoding="async" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
+      ) : (
+        <div className="magazine-card-fallback" aria-hidden="true"><span>THRYLOS</span></div>
+      )}
+      <div className="magazine-article-copy">
+        <span className="magazine-small-category">{categoryCaps(post.category)}</span>
+        <h3>{post.title || editorialTitle(post.content)}</h3>
+        <p>{post.excerpt || String(post.content || '').replace(/\s+/g, ' ').slice(0, 170)}</p>
+        <small>{formatTime(post.published_at || post.created_at)} · Γράφει {displayUser(author)}</small>
+      </div>
+    </article>
+  );
+}
+
+function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
+  const [articles, setArticles] = useState([]);
+  const [category, setCategory] = useState('all');
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [nextScheduledPublicAt, setNextScheduledPublicAt] = useState(null);
+
+  const openArticle = useCallback((article) => {
+    if (!article?.id) return;
+    navigateTo(`/article/${article.id}`);
+  }, []);
+
+  const loadArticles = useCallback(async () => {
+    const nowIso = new Date().toISOString();
+    let query = supabase
+      .from('articles')
+      .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
+      .in('status', ['published', 'scheduled'])
+      .lte('published_at', nowIso)
+      .order('published_at', { ascending: false })
+      .limit(80);
+    if (category !== 'all') query = query.eq('category', category);
+    const { data } = await query;
+    setArticles((data || []).filter(articleIsPublic));
+    setActiveSlide(0);
+
+    let upcomingQuery = supabase
+      .from('articles')
+      .select('id,published_at,status,category')
+      .eq('status', 'scheduled')
+      .gt('published_at', nowIso)
+      .order('published_at', { ascending: true })
+      .limit(1);
+    if (category !== 'all') upcomingQuery = upcomingQuery.eq('category', category);
+    const { data: upcoming } = await upcomingQuery;
+    setNextScheduledPublicAt(upcoming?.[0]?.published_at || null);
+  }, [category]);
+
+  useEffect(() => {
+    loadArticles();
+    const channel = supabase
+      .channel('public-magazine-articles')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'articles' }, loadArticles)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadArticles)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [loadArticles]);
+
+  useEffect(() => {
+    if (!nextScheduledPublicAt) return undefined;
+    const delay = Math.max(500, new Date(nextScheduledPublicAt).getTime() - Date.now() + 1100);
+    const timer = window.setTimeout(loadArticles, delay);
+    return () => window.clearTimeout(timer);
+  }, [loadArticles, nextScheduledPublicAt]);
+
+  const featured = articles.slice(0, 5);
+  const current = featured[activeSlide] || featured[0] || articles[0] || null;
+  const latest = articles.slice(0, 8);
+  const allArticleList = [...articles].sort((a, b) => {
+    const aTime = new Date(a?.published_at || a?.created_at || 0).getTime() || 0;
+    const bTime = new Date(b?.published_at || b?.created_at || 0).getTime() || 0;
+    return bTime - aTime;
+  });
+
+  useEffect(() => {
+    if (featured.length <= 1) return undefined;
+    const timer = window.setInterval(() => {
+      setActiveSlide((value) => (value + 1) % featured.length);
+    }, 6500);
+    return () => window.clearInterval(timer);
+  }, [featured.length]);
+
+  const currentImage = articleCoverUrl(current, settings.hero_url || MAGAZINE_HERO);
+
+  useEffect(() => {
+    preloadImage(currentImage);
+    featured.slice(0, 3).forEach((item) => {
+      if (articleCoverUrl(item)) preloadImage(articleCoverUrl(item));
+    });
+  }, [currentImage, featured]);
+
+  return (
+    <main className="magazine-page-shell">
+      <header className="magazine-top-strip">
+        <nav aria-label="Quick links">
+          <button type="button" onClick={() => navigateTo('/')}>ΚΛΑΣΙΚΗ ΕΚΔΟΣΗ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>ΣΥΝΔΕΣΗ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>CHAT</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>ΦΩΝΗΤΙΚΑ ΔΩΜΑΤΙΑ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>ΓΙΝΕ ΜΕΛΟΣ</button>
+        </nav>
+        <div className="magazine-socials" aria-label="Social links">
+          <span>𝕏</span><span>◎</span><span>▶</span><span>♪</span>
+          {profile ? <button type="button" onClick={() => navigateTo('/editor')}>Ο ΛΟΓΑΡΙΑΣΜΟΣ ΜΟΥ</button> : <button type="button" onClick={() => navigateTo('/editor')}>ΜΕΛΟΣ</button>}
+        </div>
+      </header>
+
+      <section className="magazine-hero-brand" style={{ '--magazine-hero': `url(${settings.hero_url || MAGAZINE_HERO})` }}>
+        <div className="magazine-brand-block">
+          <MagazineLogo settings={settings} />
+          <div>
+            <h1>{cleanBrandText(settings.site_title, APP_NAME)}</h1>
+            <p>Η ΚΟΙΝΟΤΗΤΑ ΤΟΥ ΘΡΥΛΟΥ</p>
+          </div>
+        </div>
+      </section>
+
+      <nav className="magazine-category-nav" aria-label="Article categories">
+        <button className={category === 'all' ? 'active' : ''} type="button" onClick={() => setCategory('all')} aria-label="All articles">⌂</button>
+        {ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => (
+          <button key={item.id} className={category === item.id ? 'active' : ''} type="button" onClick={() => setCategory(item.id)}>
+            {categoryCaps(item.id)}
+          </button>
+        ))}
+        <button type="button" className="magazine-search-button" aria-label="Search">⌕</button>
+      </nav>
+
+      {current && (
+        <section className="magazine-feature-grid">
+          <article className="magazine-feature-card" onClick={() => openArticle(current)} role="button" tabIndex={0} style={{ '--feature-image': `url(${currentImage})` }}>
+            <button className="magazine-arrow left" type="button" onClick={(event) => { event.stopPropagation(); setActiveSlide((value) => (value - 1 + featured.length) % featured.length); }} aria-label="Previous article">‹</button>
+            <button className="magazine-arrow right" type="button" onClick={(event) => { event.stopPropagation(); setActiveSlide((value) => (value + 1) % featured.length); }} aria-label="Next article">›</button>
+            <div className="magazine-feature-copy">
+              <span className="magazine-feature-category">{categoryCaps(current.category)}</span>
+              <h2>{current.title || editorialTitle(current.content)}</h2>
+              <p>{current.excerpt || String(current.content || '').replace(/\s+/g, ' ').slice(0, 210)}</p>
+              <button className="magazine-read-more" type="button">ΔΙΑΒΑΣΕ ΠΕΡΙΣΣΟΤΕΡΑ</button>
+            </div>
+            {featured.length > 1 && (
+              <div className="magazine-dots" aria-label="Featured articles">
+                {featured.map((article, index) => <button key={article.id} className={activeSlide === index ? 'active' : ''} type="button" onClick={(event) => { event.stopPropagation(); setActiveSlide(index); }} aria-label={`Show article ${index + 1}`} />)}
+              </div>
+            )}
+          </article>
+
+          <aside className="magazine-sidebar-card">
+            <div className="magazine-section-head">
+              <h2>ΤΕΛΕΥΤΑΙΑ ΚΕΙΜΕΝΑ</h2>
+            </div>
+            <div className="magazine-latest-list">
+              {latest.map((post) => <PublicMagazineLatestItem key={post.id} post={post} onOpen={openArticle} />)}
+            </div>
+            <button className="magazine-all-link" type="button" onClick={() => document.getElementById('magazine-all-articles')?.scrollIntoView({ behavior: 'smooth' })}>ΟΛΑ ΤΑ ΚΕΙΜΕΝΑ ›</button>
+          </aside>
+        </section>
+      )}
+
+      <section id="magazine-all-articles" className="magazine-content-grid">
+        <div className="magazine-all-articles">
+          <div className="magazine-section-head wide">
+            <h2>ΟΛΑ ΤΑ ΑΡΘΡΑ</h2>
+            <small>{allArticleList.length} άρθρα · ταξινόμηση με βάση την ημερομηνία δημοσίευσης</small>
+          </div>
+          {allArticleList.length > 0 ? (
+            <div className="magazine-article-grid">
+              {allArticleList.map((post) => <PublicMagazineArticleCard key={post.id} post={post} onOpen={openArticle} />)}
+            </div>
+          ) : (
+            <div className="magazine-empty-card">
+              <span>THRYLOS UNITED</span>
+              <h2>Δεν υπάρχουν ακόμα δημοσιευμένα άρθρα.</h2>
+              <p>Το πρώτο κείμενο ετοιμάζεται. Μείνε συντονισμένος.</p>
+            </div>
+          )}
+        </div>
+        <aside className="magazine-sponsor-stack">
+          <div className="magazine-sponsor-card">
+            <span>ΧΟΡΗΓΟΣ ΕΠΙΚΟΙΝΩΝΙΑΣ</span>
+            <strong>YOUR<br />BRAND</strong>
+          </div>
+          <div className="magazine-logo-guide-card">
+            <img src={MAGAZINE_LOGO} alt="Thrylos United logo" loading="lazy" decoding="async" />
+            <strong>Νέο red-white λογότυπο</strong>
+            <small>Χρησιμοποιείται μόνο στην εναλλακτική έκδοση. Μπορείς αργότερα να το κάνεις βασικό από τα Site settings.</small>
+          </div>
+        </aside>
+      </section>
+
+      <footer className="magazine-footer">
+        <div className="magazine-footer-brand">
+          <img src={MAGAZINE_LOGO} alt="" loading="lazy" decoding="async" />
+          <span><strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong><small>Η ΚΟΙΝΟΤΗΤΑ ΤΟΥ ΘΡΥΛΟΥ</small></span>
+        </div>
+        <nav>
+          <button type="button" onClick={() => navigateTo('/')}>ΚΛΑΣΙΚΗ ΕΚΔΟΣΗ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>ΕΠΙΚΟΙΝΩΝΙΑ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>ΔΙΑΦΗΜΙΣΗ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>ΟΡΟΙ ΧΡΗΣΗΣ</button>
+        </nav>
+      </footer>
+    </main>
   );
 }
 
@@ -4676,6 +4926,7 @@ function App() {
   const articleMatch = rawPath.match(/^\/article\/([0-9a-fA-F-]{8,})$/);
   const articleId = articleMatch ? articleMatch[1] : '';
   const editorMode = currentPath === '/editor' || currentPath === '/login';
+  const publicAltMode = currentPath === '/v2' || currentPath === '/red-home' || currentPath === '/magazine';
 
   const refreshSiteSettings = useCallback(async () => {
     const next = await loadSiteSettings();
@@ -4748,6 +4999,7 @@ function App() {
   if (loading) return <><PageLoadingBar active /><main className="setup-shell"><div className="glass-card loading-card loading-state-card"><span className="loading-spinner" />Loading members area…</div></main></>;
   if (!session || !profile) {
     if (articleId) return <><PageLoadingBar active={pageSettling} /><ArticlePage settings={siteSettings} articleId={articleId} /></>;
+    if (publicAltMode) return <><PageLoadingBar active={pageSettling} /><PublicMagazinePage settings={siteSettings} /></>;
     const params = new URLSearchParams(window.location.search);
     const path = window.location.pathname.replace(/\/+$/, '').toLowerCase();
     if (params.has('invite') || params.has('login') || path === '/editor' || path === '/login') {
@@ -4757,6 +5009,7 @@ function App() {
   }
 
   if (articleId) return <><PageLoadingBar active={pageSettling} /><ArticlePage settings={siteSettings} articleId={articleId} profile={profile} /></>;
+  if (publicAltMode) return <><PageLoadingBar active={pageSettling} /><PublicMagazinePage settings={siteSettings} profile={profile} /><ChatPanel profile={profile} /></>;
 
   return (
     <>

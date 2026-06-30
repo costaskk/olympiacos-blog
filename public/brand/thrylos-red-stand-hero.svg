@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 620" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#170004"/>
+      <stop offset=".42" stop-color="#d90416"/>
+      <stop offset="1" stop-color="#050505"/>
+    </linearGradient>
+    <radialGradient id="flare" cx="80%" cy="30%" r="65%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".30"/>
+      <stop offset=".22" stop-color="#ff2637" stop-opacity=".24"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="10"/></filter>
+  </defs>
+  <rect width="1800" height="620" fill="url(#bg)"/>
+  <rect width="1800" height="620" fill="url(#flare)"/>
+  <g opacity=".58">
+    <path d="M0 370 C340 280 550 310 820 245 C1110 175 1380 190 1800 90 V620 H0Z" fill="#050505" opacity=".72"/>
+    <path d="M0 456 C290 363 627 370 944 303 C1244 239 1453 271 1800 180 V620 H0Z" fill="#2a0006" opacity=".86"/>
+  </g>
+  <g opacity=".38" fill="#fff">
+    <circle cx="150" cy="330" r="3"/><circle cx="190" cy="318" r="2"/><circle cx="230" cy="340" r="3"/><circle cx="290" cy="324" r="2"/>
+    <circle cx="380" cy="350" r="3"/><circle cx="420" cy="335" r="2"/><circle cx="470" cy="344" r="3"/><circle cx="530" cy="324" r="2"/>
+    <circle cx="640" cy="315" r="3"/><circle cx="700" cy="330" r="2"/><circle cx="760" cy="312" r="3"/><circle cx="820" cy="300" r="2"/>
+    <circle cx="950" cy="274" r="3"/><circle cx="1010" cy="291" r="2"/><circle cx="1070" cy="265" r="3"/><circle cx="1140" cy="284" r="2"/>
+    <circle cx="1260" cy="250" r="3"/><circle cx="1320" cy="260" r="2"/><circle cx="1390" cy="236" r="3"/><circle cx="1460" cy="252" r="2"/>
+  </g>
+  <g filter="url(#blur)" opacity=".34">
+    <path d="M220 170c100-100 210-110 310-20 110 98 275 45 390-25 180-110 390-82 560 80" fill="none" stroke="#fff" stroke-width="48"/>
+    <path d="M940 40c160 120 320 82 470 5 160-82 267-46 370 64" fill="none" stroke="#ffb4ba" stroke-width="34"/>
+  </g>
+  <g opacity=".62">
+    <rect x="0" y="0" width="1800" height="620" fill="none"/>
+    <path d="M0 485h1800" stroke="#fff" stroke-opacity=".12" stroke-width="3"/>
+    <path d="M0 425h1800" stroke="#fff" stroke-opacity=".08" stroke-width="2"/>
+    <path d="M0 365h1800" stroke="#fff" stroke-opacity=".05" stroke-width="2"/>
+  </g>
+</svg>

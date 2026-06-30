@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" role="img" aria-labelledby="title desc">
+  <title id="title">Thrylos United lion crest</title>
+  <desc id="desc">A red and white independent sports community lion crest logo.</desc>
+  <defs>
+    <linearGradient id="red" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#ff1f2d"/>
+      <stop offset=".52" stop-color="#e30613"/>
+      <stop offset="1" stop-color="#98000b"/>
+    </linearGradient>
+    <linearGradient id="dark" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#202020"/>
+      <stop offset="1" stop-color="#050505"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="16" stdDeviation="12" flood-color="#000" flood-opacity=".45"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M320 24 548 93v167c0 162-94 276-228 356C186 536 92 422 92 260V93L320 24Z" fill="url(#dark)"/>
+    <path d="M320 52 522 113v145c0 146-84 249-202 323C202 507 118 404 118 258V113L320 52Z" fill="url(#red)"/>
+    <path d="M320 81 492 133v124c0 123-66 211-172 278-106-67-172-155-172-278V133L320 81Z" fill="#fff"/>
+    <path d="M320 105 465 149v110c0 105-52 181-145 240-93-59-145-135-145-240V149l145-44Z" fill="url(#red)"/>
+    <path d="M194 158h252v31H194z" fill="#fff" opacity=".96"/>
+    <path d="M213 214h214v25H213z" fill="#fff" opacity=".94"/>
+    <g transform="translate(320 313)">
+      <path d="M-119-69c43-51 88-82 139-90 40-7 82 1 119 29-26 3-47 14-61 31 27-3 50 3 69 18-31 8-53 25-66 51 30-5 52 4 68 28-33 3-58 18-75 44 24 2 42 13 54 31-31-4-58 0-81 14 16 15 24 33 24 55-28-20-54-29-78-26-24 2-48 13-72 32 5-25 17-45 36-59-28-6-51-1-78 12 13-28 31-48 55-60-24-6-43 0-61 12 8-37 24-65 48-84-22-8-42-8-60-2Z" fill="#fff"/>
+      <path d="M-42-57c26-22 62-30 97-14-30 8-48 26-55 54 24-10 52-8 79 6-32 8-53 25-63 51 24-7 49-4 74 9-37 11-64 28-81 51 6 14 6 28-1 43-19-15-43-21-72-17 21-25 34-51 41-78-27 7-51 18-73 33 5-33 23-56 54-70-31-2-56 5-75 22 13-37 38-67 75-90Z" fill="#d90416"/>
+      <path d="M-7-32c29-7 58 4 79 26-30-5-51 6-64 32 24-5 44 0 60 17-34 0-59 15-75 45-20-31-24-72 0-120Z" fill="#7b0009" opacity=".88"/>
+      <circle cx="61" cy="-38" r="8" fill="#111"/>
+      <path d="M73-6c-8 19-22 32-42 39" fill="none" stroke="#111" stroke-width="14" stroke-linecap="round"/>
+      <path d="M-2 62c34 7 65 1 92-19" fill="none" stroke="#111" stroke-width="12" stroke-linecap="round" opacity=".72"/>
+    </g>
+    <path d="M151 388h338v74c-41 48-98 89-169 127-71-38-128-79-169-127v-74Z" fill="url(#dark)" opacity=".98"/>
+    <path d="M165 401h310v46H165z" fill="#fff"/>
+    <text x="320" y="436" text-anchor="middle" font-family="Impact, Haettenschweiler, 'Arial Black', sans-serif" font-size="52" letter-spacing="2" fill="#d90416">THRYLOS</text>
+    <text x="320" y="486" text-anchor="middle" font-family="Impact, Haettenschweiler, 'Arial Black', sans-serif" font-size="38" letter-spacing="9" fill="#fff">UNITED</text>
+    <path d="M240 507h160l-80 48-80-48Z" fill="#fff"/>
+    <text x="320" y="533" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="18" fill="#d90416">EST. 2026</text>
+  </g>
+  <path d="M80 320c-40 48-47 109-17 159 17-47 40-75 70-90-27-11-45-34-53-69Zm480 0c40 48 47 109 17 159-17-47-40-75-70-90 27-11 45-34 53-69Z" fill="#e30613" opacity=".96"/>
+</svg>
