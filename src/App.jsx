@@ -2487,12 +2487,6 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
   const [heroPreview, setHeroPreview] = useState('');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [passwordOpen, setPasswordOpen] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordBusy, setPasswordBusy] = useState(false);
-  const [passwordMessage, setPasswordMessage] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -4155,6 +4149,12 @@ function ProfileCard({ profile, setProfile }) {
   const [avatarPreview, setAvatarPreview] = useState(profileAvatarUrl(profile));
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState('');
 
   useEffect(() => {
     setHandle(profile.handle || '');
