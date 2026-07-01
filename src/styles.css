@@ -7085,318 +7085,207 @@ button:active,
   .magazine-card-fallback { height: 190px; }
 }
 
-/* v9.2 logo, v2 article pages, category cleanup, and article cover polish */
-.public-topbar .brand-lockup .crest,
-.article-page-topbar .brand-lockup .crest {
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
-  padding: 0;
-  background: #fff;
-}
-
-.public-topbar .brand-lockup strong,
-.article-page-topbar .brand-lockup strong {
-  font-size: clamp(1.45rem, 2.2vw, 2rem);
-  line-height: 1;
-  letter-spacing: -.045em;
-}
-
-.public-topbar .brand-lockup small,
-.article-page-topbar .brand-lockup small {
-  font-size: .86rem;
-  line-height: 1.1;
-}
-
-.crest-image img {
-  border-radius: inherit;
-  object-fit: contain;
-  transform: scale(1.08);
-}
-
-.brand-lockup.big .crest-image img {
-  transform: scale(1.06);
-}
-
-.article-page-card {
-  overflow: hidden !important;
-  background-clip: padding-box;
-}
-
-.article-page-cover,
-.article-page-card > .article-page-cover,
-.article-page-card img.article-page-cover {
-  display: block !important;
-  width: 100% !important;
-  margin: 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  clip-path: inset(0) !important;
-  object-fit: cover;
-  object-position: center;
-}
-
-.magazine-brand-logo {
-  width: clamp(180px, 18vw, 315px);
-  height: clamp(180px, 18vw, 315px);
-  border-radius: 22px;
-  background: #fff;
-  padding: 0;
-  object-fit: contain;
-}
-
-.magazine-logo-guide-card img,
-.magazine-footer-brand img,
-.magazine-article-brand img {
-  background: #fff;
-  border-radius: 14px;
-  object-fit: contain;
-}
-
-.magazine-page-shell .magazine-category-nav button,
+/* v9.3 V2 carousel/action and no-tonos uppercase fixes */
+.magazine-page-shell .magazine-feature-copy h2,
 .magazine-page-shell .magazine-section-head h2,
-.magazine-page-shell .magazine-feature-category,
-.magazine-page-shell .magazine-small-category,
-.magazine-page-shell .magazine-read-more,
-.magazine-page-shell .magazine-all-link,
-.magazine-page-shell .magazine-footer button,
-.magazine-page-shell .magazine-top-strip button {
-  text-transform: uppercase;
+.magazine-page-shell .magazine-top-strip button,
+.magazine-page-shell .magazine-brand-block p,
+.magazine-page-shell .magazine-footer-brand strong,
+.magazine-page-shell .magazine-footer-brand small,
+.magazine-page-shell .magazine-footer button {
+  text-transform: none;
 }
 
-.magazine-article-shell {
-  min-height: 100vh;
-  padding-bottom: 56px;
-  background:
-    radial-gradient(circle at 6% 0%, rgba(227, 6, 19, .13), transparent 32rem),
-    linear-gradient(180deg, #fff 0%, #f5f5f6 100%);
+.magazine-feature-card {
+  cursor: default;
 }
 
-.magazine-article-topbar {
-  width: min(100% - 56px, 1280px);
-  min-height: 96px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+.magazine-read-more,
+.magazine-arrow,
+.magazine-dots button,
+.magazine-latest-item,
+.magazine-article-card {
+  cursor: pointer;
+}
+
+.magazine-arrow {
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.magazine-arrow:focus-visible,
+.magazine-dots button:focus-visible,
+.magazine-read-more:focus-visible {
+  outline: 3px solid rgba(227, 6, 19, .35);
+  outline-offset: 3px;
+}
+
+/* v9.3 V2 article reader */
+.magazine-article-page {
+  background: #fff;
   color: #111;
+  min-height: 100vh;
 }
 
 .magazine-article-brand {
-  display: inline-flex;
+  position: relative;
+  min-height: 190px;
+  display: flex;
   align-items: center;
-  gap: 16px;
+  padding: clamp(22px, 4vw, 42px) clamp(22px, 5vw, 70px);
+  background:
+    linear-gradient(90deg, rgba(218,0,21,.98) 0%, rgba(194,0,18,.82) 46%, rgba(0,0,0,.42) 100%),
+    var(--magazine-hero) center / cover no-repeat;
+  overflow: hidden;
+}
+
+.magazine-article-brand::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 6px;
+  background: linear-gradient(90deg, #111, #e30613, #fff, #e30613, #111);
+}
+
+.magazine-article-brand-link {
+  position: relative;
+  z-index: 1;
   border: 0;
   background: transparent;
-  color: inherit;
-  cursor: pointer;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0;
   text-align: left;
+  cursor: pointer;
+  text-shadow: 0 10px 26px rgba(0,0,0,.35);
 }
 
-.magazine-article-brand img {
-  width: 82px;
-  height: 82px;
-  box-shadow: 0 12px 30px rgba(0,0,0,.12);
+.magazine-article-brand-link .magazine-brand-logo {
+  width: clamp(90px, 9vw, 145px);
+  height: clamp(90px, 9vw, 145px);
 }
 
-.magazine-article-brand span {
-  display: grid;
-  gap: 2px;
-}
-
-.magazine-article-brand strong {
+.magazine-article-brand-link strong {
+  display: block;
   font-family: Impact, Haettenschweiler, "Arial Black", sans-serif;
-  font-size: clamp(2rem, 4vw, 3.6rem);
-  line-height: .9;
-  letter-spacing: .03em;
-  text-transform: uppercase;
+  font-size: clamp(2.5rem, 6vw, 5.5rem);
+  line-height: .85;
+  letter-spacing: .02em;
 }
 
-.magazine-article-brand small {
-  color: #666;
-  font-weight: 850;
-  letter-spacing: .01em;
+.magazine-article-brand-link small {
+  display: block;
+  margin-top: 10px;
+  font-size: clamp(.95rem, 1.35vw, 1.35rem);
+  font-weight: 1000;
+  letter-spacing: .12em;
 }
 
-.magazine-article-topbar nav {
+.magazine-article-loading,
+.magazine-article-reader {
+  width: min(100% - 42px, 1080px);
+  margin: 28px auto;
+}
+
+.magazine-article-loading,
+.magazine-article-reader {
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(0,0,0,.08);
+}
+
+.magazine-article-loading {
+  padding: 28px;
+  color: #555;
+  font-weight: 900;
+}
+
+.magazine-article-cover {
+  display: block;
+  width: 100%;
+  max-height: min(62vh, 620px);
+  object-fit: cover;
+  border-radius: 16px 16px 0 0;
+  background: #111;
+}
+
+.magazine-article-reader-copy {
+  padding: clamp(22px, 4vw, 56px);
+}
+
+.magazine-article-reader-copy h1,
+.magazine-article-error h1 {
+  margin: 18px 0 14px;
+  color: #111;
+  font-size: clamp(2.1rem, 5.5vw, 5.2rem);
+  line-height: .92;
+  letter-spacing: -.045em;
+  font-weight: 1000;
+}
+
+.magazine-article-meta {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.magazine-article-topbar nav button {
-  border: 1px solid rgba(0,0,0,.12);
-  border-radius: 999px;
-  background: #fff;
-  color: #111;
-  padding: 10px 16px;
-  font-weight: 1000;
-  cursor: pointer;
-}
-
-.magazine-article-topbar nav button:hover {
-  background: #e30613;
-  color: #fff;
-  border-color: #e30613;
-}
-
-.magazine-article-category-nav {
-  margin-top: 0;
-  margin-bottom: 24px;
-}
-
-.magazine-reader-card {
-  width: min(100% - 56px, 1120px);
-  margin: 0 auto 28px;
-  overflow: hidden;
-  border: 1px solid rgba(0,0,0,.09);
-  border-radius: 18px;
-  background: #fff;
-  color: #111;
-  box-shadow: 0 22px 70px rgba(0,0,0,.12);
-}
-
-.magazine-reader-cover {
-  display: block;
-  width: 100%;
-  max-height: min(620px, 58vh);
-  aspect-ratio: 16 / 8;
-  object-fit: cover;
-  object-position: center;
-  border: 0;
-  border-radius: 0;
-}
-
-.magazine-reader-content {
-  padding: clamp(24px, 5vw, 64px);
-}
-
-.magazine-reader-content h1,
-.magazine-reader-message h1 {
-  max-width: 920px;
-  margin: 20px 0 16px;
-  color: #111;
-  font-size: clamp(2.8rem, 7vw, 6.7rem);
-  line-height: .88;
-  letter-spacing: -.055em;
-  text-wrap: balance;
-}
-
-.magazine-reader-byline {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: #555;
-  font-weight: 850;
-  margin-bottom: 28px;
-}
-
-.magazine-reader-byline strong {
-  color: #e30613;
-}
-
-.magazine-reader-excerpt {
-  max-width: 900px;
-  margin: 0 0 30px;
-  color: #555;
-  font-size: clamp(1.08rem, 2vw, 1.38rem);
-  line-height: 1.65;
-  font-weight: 750;
-}
-
-.magazine-reader-card .article-reader-content,
-.magazine-reader-card .article-page-body {
-  max-width: 900px;
-}
-
-.magazine-reader-card .article-page-body p {
-  color: #1b1b1e;
-  font-size: clamp(1.08rem, 1.35vw, 1.24rem);
-  line-height: 1.95;
-}
-
-.magazine-reader-card .article-inline-figure {
-  border-color: rgba(0,0,0,.09);
-  background: #f4f4f5;
-}
-
-.magazine-reader-card .article-inline-figure figcaption {
-  color: #62626b;
-}
-
-.magazine-reader-card .article-sources-box {
-  border-color: rgba(0,0,0,.1);
-  background: #f5f5f6;
-  color: #1b1b1e;
-}
-
-.magazine-reader-card .article-sources-box a {
-  color: #e30613;
-}
-
-.magazine-reader-message {
-  padding: clamp(28px, 5vw, 62px);
-  text-align: center;
-}
-
-.magazine-reader-message p {
-  max-width: 680px;
-  margin: 0 auto 24px;
   color: #666;
-  line-height: 1.7;
-  font-weight: 750;
+  font-weight: 850;
+  margin: 12px 0 20px;
+}
+
+.magazine-article-meta strong {
+  color: #111;
+}
+
+.magazine-article-excerpt {
+  margin: 0 0 26px;
+  max-width: 820px;
+  color: #4b4b55;
+  font-size: clamp(1.05rem, 1.4vw, 1.35rem);
+  line-height: 1.55;
+  font-weight: 850;
+}
+
+.magazine-article-reader .article-page-body {
+  color: #222;
+  font-size: clamp(1.02rem, 1.18vw, 1.18rem);
+  line-height: 1.85;
+}
+
+.magazine-article-reader .article-page-body p {
+  margin: 0 0 1.25rem;
+}
+
+.magazine-article-reader .article-inline-figure img {
+  border-radius: 12px;
+}
+
+.magazine-article-error {
+  padding: clamp(24px, 4vw, 48px);
 }
 
 @media (max-width: 780px) {
-  .public-topbar .brand-lockup .crest,
-  .article-page-topbar .brand-lockup .crest {
-    width: 58px;
-    height: 58px;
+  .magazine-article-brand {
+    min-height: 170px;
   }
 
-  .magazine-brand-logo {
-    width: 155px;
-    height: 155px;
+  .magazine-article-brand-link {
+    gap: 12px;
   }
 
-  .magazine-article-topbar,
-  .magazine-reader-card,
-  .magazine-article-category-nav {
-    width: min(100% - 22px, 1280px);
+  .magazine-article-brand-link .magazine-brand-logo {
+    width: 82px;
+    height: 82px;
   }
 
-  .magazine-article-topbar {
-    align-items: flex-start;
-    flex-direction: column;
-    padding: 16px 0;
+  .magazine-article-brand-link small {
+    letter-spacing: .06em;
   }
 
-  .magazine-article-brand img {
-    width: 66px;
-    height: 66px;
-  }
-
-  .magazine-article-brand strong {
-    font-size: clamp(2rem, 12vw, 3rem);
-  }
-
-  .magazine-article-topbar nav {
-    width: 100%;
-    overflow-x: auto;
-  }
-
-  .magazine-reader-cover {
-    aspect-ratio: 16 / 10;
-    max-height: 360px;
-  }
-
-  .magazine-reader-content {
-    padding: 22px;
-  }
-
-  .magazine-reader-content h1,
-  .magazine-reader-message h1 {
-    font-size: clamp(2.45rem, 13vw, 4.2rem);
+  .magazine-article-loading,
+  .magazine-article-reader {
+    width: min(100% - 22px, 1080px);
   }
 }
