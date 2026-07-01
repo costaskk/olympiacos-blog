@@ -2335,9 +2335,10 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
     return () => window.clearTimeout(timer);
   }, [loadArticles, nextScheduledPublicAt]);
 
-  const featured = articles.slice(0, 5);
+  const featured = useMemo(() => articles.slice(0, 5), [articles]);
   const leadArticle = featured[0] || articles[0] || null;
-  const current = featured[activeSlide] || leadArticle || null;
+  const featuredCount = featured.length;
+  const current = featuredCount > 0 ? (featured[activeSlide % featuredCount] || leadArticle) : leadArticle;
   const articleTimestamp = (article) => new Date(article?.published_at || article?.created_at || 0).getTime() || 0;
   const allArticleList = [...articles].sort((a, b) => articleTimestamp(b) - articleTimestamp(a));
 
