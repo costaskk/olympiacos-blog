@@ -7084,3 +7084,206 @@ button:active,
   .magazine-article-card img,
   .magazine-card-fallback { height: 190px; }
 }
+
+/* v9.1 logo + v2 article polish */
+:root {
+  --tu-red: #e30613;
+  --tu-deep-red: #9f000d;
+  --tu-black: #0b0b0d;
+  --tu-ink: #111114;
+}
+
+.crest-image,
+.crest {
+  background: transparent;
+  overflow: visible;
+}
+
+.crest-image img {
+  object-fit: contain;
+  filter: drop-shadow(0 10px 18px rgba(0,0,0,.28));
+  transform: scale(1.08);
+}
+
+.public-topbar .brand-lockup .crest,
+.article-page-topbar .brand-lockup .crest,
+.topbar .brand-lockup .crest {
+  width: clamp(58px, 6vw, 86px);
+  height: clamp(58px, 6vw, 86px);
+}
+
+.public-topbar .brand-lockup strong,
+.article-page-topbar .brand-lockup strong,
+.topbar .brand-lockup strong {
+  font-size: clamp(1.1rem, 2.2vw, 1.65rem);
+  letter-spacing: .01em;
+}
+
+.brand-lockup.big .crest,
+.crest.large {
+  width: clamp(104px, 12vw, 158px);
+  height: clamp(104px, 12vw, 158px);
+}
+
+.magazine-brand-logo {
+  width: clamp(185px, 18vw, 315px);
+  height: clamp(185px, 18vw, 315px);
+  object-fit: contain;
+  filter: drop-shadow(0 22px 34px rgba(0,0,0,.42));
+}
+
+.magazine-brand-block h1 {
+  font-size: clamp(5.2rem, 11vw, 12.4rem);
+  letter-spacing: .01em;
+}
+
+.magazine-brand-block p {
+  letter-spacing: .16em;
+}
+
+.magazine-category-nav button {
+  text-transform: uppercase;
+}
+
+.magazine-brand-home {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.magazine-article-page-shell {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(227,6,19,.10), transparent 30%),
+    linear-gradient(180deg, #fff 0%, #f6f6f8 52%, #fff 100%);
+}
+
+.magazine-article-brand {
+  min-height: clamp(230px, 24vw, 330px);
+}
+
+.magazine-article-nav {
+  margin-bottom: 30px;
+}
+
+.magazine-article-page-card {
+  width: min(100% - 56px, 1120px);
+  margin: 0 auto 42px;
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(0,0,0,.14);
+}
+
+.magazine-article-cover {
+  width: 100%;
+  height: clamp(330px, 46vw, 640px);
+  display: block;
+  object-fit: cover;
+  background: linear-gradient(135deg, var(--tu-red), #111);
+}
+
+.magazine-article-page-copy {
+  width: min(100%, 900px);
+  margin: 0 auto;
+  padding: clamp(28px, 5vw, 66px);
+}
+
+.magazine-article-page-copy h1 {
+  margin: 20px 0 14px;
+  color: #111;
+  font-family: Impact, Haettenschweiler, "Arial Black", sans-serif;
+  font-size: clamp(2.8rem, 6vw, 6.6rem);
+  line-height: .9;
+  letter-spacing: .005em;
+  text-transform: uppercase;
+}
+
+.magazine-article-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #5f5f66;
+  font-weight: 900;
+  margin: 16px 0 26px;
+}
+
+.magazine-article-excerpt {
+  margin: 0 0 32px;
+  padding: 20px 0 0;
+  border-top: 3px solid rgba(227,6,19,.20);
+  color: #313136;
+  font-size: clamp(1.1rem, 1.7vw, 1.45rem);
+  line-height: 1.45;
+  font-weight: 900;
+}
+
+.magazine-article-page-copy .article-body,
+.magazine-article-page-copy .article-content {
+  color: #17171a;
+}
+
+.magazine-article-page-copy .article-body p,
+.magazine-article-page-copy p {
+  font-size: clamp(1.04rem, 1.25vw, 1.18rem);
+  line-height: 1.78;
+}
+
+.magazine-article-page-copy .article-inline-figure img {
+  border-radius: 14px;
+  box-shadow: 0 16px 42px rgba(0,0,0,.16);
+}
+
+.magazine-article-loading,
+.magazine-article-error {
+  width: min(100% - 56px, 920px);
+  margin: 0 auto 42px;
+  padding: 34px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(0,0,0,.12);
+}
+
+.magazine-logo-guide-card img {
+  width: 220px;
+  filter: drop-shadow(0 10px 20px rgba(0,0,0,.18));
+}
+
+@media (max-width: 780px) {
+  .magazine-brand-logo {
+    width: 180px;
+    height: 180px;
+  }
+
+  .magazine-brand-block h1 {
+    font-size: clamp(3.8rem, 18vw, 6rem);
+  }
+
+  .magazine-article-page-card,
+  .magazine-article-loading,
+  .magazine-article-error {
+    width: min(100% - 22px, 1120px);
+    border-radius: 14px;
+  }
+
+  .magazine-article-cover {
+    height: clamp(230px, 62vw, 390px);
+  }
+
+  .magazine-article-page-copy {
+    padding: 24px;
+  }
+
+  .magazine-article-page-copy h1 {
+    font-size: clamp(2.35rem, 12vw, 4.2rem);
+  }
+
+  .public-topbar .brand-lockup .crest,
+  .article-page-topbar .brand-lockup .crest,
+  .topbar .brand-lockup .crest {
+    width: 62px;
+    height: 62px;
+  }
+}

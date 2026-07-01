@@ -70,9 +70,21 @@ values
   ('community_title', 'Clean red-white community'),
   ('community_text', 'Use the feed for member posts and the floating chat for general talk, private messages and group rooms.'),
   ('footer_text', 'Independent red-white fan project. Add only brand assets you are allowed to use in public/brand/ or from the admin settings page.'),
-  ('logo_url', ''),
+  ('logo_url', '/brand/thrylos-united-crest-2026.png'),
   ('hero_url', '')
 on conflict (key) do nothing;
+
+update public.site_settings
+set value = '/brand/thrylos-united-crest-2026.png',
+    updated_at = now()
+where key = 'logo_url'
+  and (
+    value = ''
+    or value ilike '%port24-logo%'
+    or value ilike '%olympiacos-logo%'
+    or value ilike '%community-crest%'
+    or value ilike '%thrylos-united-lion-crest.svg%'
+  );
 
 alter table public.invites add column if not exists invite_role text not null default 'member';
 

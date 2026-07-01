@@ -8,9 +8,13 @@ const BUCKET = 'post-images';
 const SITE_ASSETS_BUCKET = 'site-assets';
 const PROFILE_IMAGES_BUCKET = 'profile-images';
 const APP_NAME = 'Thrylos United';
-const BRAND_LOGO_CANDIDATES = ['/brand/port24-logo.png', '/brand/olympiacos-logo.png', '/brand/community-crest.svg'];
+const MAIN_LOGO = '/brand/thrylos-united-crest-2026.png';
+const HORIZONTAL_LOGO = '/brand/thrylos-united-horizontal-2026.png';
+const ROUND_LOGO = '/brand/thrylos-united-round-2026.png';
+const ICON_LOGO = '/brand/thrylos-united-icon-2026.png';
+const BRAND_LOGO_CANDIDATES = [MAIN_LOGO, HORIZONTAL_LOGO, ROUND_LOGO, ICON_LOGO, '/brand/thrylos-united-lion-crest.svg', '/brand/community-crest.svg'];
 const BRAND_HERO = '/brand/red-white-hero.svg';
-const MAGAZINE_LOGO = '/brand/thrylos-united-lion-crest.svg';
+const MAGAZINE_LOGO = MAIN_LOGO;
 const MAGAZINE_HERO = '/brand/thrylos-red-stand-hero.svg';
 const OFFICIAL_HERO = '/brand/olympiacos-hero.jpg';
 const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -59,7 +63,7 @@ const DEFAULT_SITE_SETTINGS = {
   community_title: 'Thrylos United community hub',
   community_text: 'A clean private board for general Olympiakos discussion, matchday reactions, news links, columns, media and live rooms.',
   footer_text: 'Thrylos United · independent red-white community.',
-  logo_url: '',
+  logo_url: MAIN_LOGO,
   hero_url: '',
 };
 
@@ -84,10 +88,29 @@ const ARTICLE_CATEGORIES = [
   { id: 'basketball', label: 'Μπάσκετ' },
   { id: 'football', label: 'Ποδόσφαιρο' },
   { id: 'erasitexnhs', label: 'Ερασιτέχνης' },
-  { id: 'volleyball', label: 'Βόλεϋ' },
   { id: 'transfers', label: 'Μεταγραφές' },
   { id: 'opinion', label: 'Απόψεις' },
   { id: 'media', label: 'Media' },
+];
+
+const AMATEUR_CATEGORY_IDS = [
+  'erasitexnhs',
+  'volleyball',
+  'volley',
+  'polo',
+  'waterpolo',
+  'water_polo',
+  'handball',
+  'womens_basketball',
+  'women_basketball',
+  'womens_football',
+  'women_football',
+  'womens_polo',
+  'women_polo',
+  'womens_volleyball',
+  'women_volleyball',
+  'womens_volley',
+  'women_volley',
 ];
 function formatTime(value) {
   if (!value) return '';
@@ -514,11 +537,28 @@ async function createCleanWavFromRecording(blob) {
   return encodeWav(mono, sampleRate);
 }
 
+
+function isLegacyLogoUrl(value = '') {
+  return /(port24-logo|olympiacos-logo|community-crest|thrylos-united-lion-crest\.svg)/i.test(String(value || ''));
+}
+
+function preferredSiteLogo(settings = DEFAULT_SITE_SETTINGS, fallback = MAIN_LOGO) {
+  const value = String(settings?.logo_url || '').trim();
+  if (!value || isLegacyLogoUrl(value)) return fallback;
+  return value;
+}
+
+function preferredFavicon(settings = DEFAULT_SITE_SETTINGS) {
+  const value = String(settings?.logo_url || '').trim();
+  if (!value || isLegacyLogoUrl(value)) return ICON_LOGO;
+  return value;
+}
+
 function applyDocumentBranding(settings = DEFAULT_SITE_SETTINGS) {
   const title = cleanBrandText(settings.site_title, APP_NAME);
   document.title = title;
 
-  const faviconUrl = settings.logo_url || '/favicon.svg';
+  const faviconUrl = preferredFavicon(settings);
   let favicon = document.querySelector('link[rel=\"icon\"]');
   if (!favicon) {
     favicon = document.createElement('link');
@@ -567,12 +607,26 @@ function appCaps(value = '') {
   return stripGreekTonos(value).toLocaleUpperCase('el-GR');
 }
 
+function mainCategoryId(category = '') {
+  const value = String(category || '').trim().toLowerCase();
+  if (AMATEUR_CATEGORY_IDS.includes(value)) return 'erasitexnhs';
+  return value || 'all';
+}
+
 function categoryLabel(category) {
-  return ARTICLE_CATEGORIES.find((item) => item.id === category)?.label || 'Γενικά';
+  const normalized = mainCategoryId(category);
+  return ARTICLE_CATEGORIES.find((item) => item.id === normalized)?.label || 'Γενικά';
 }
 
 function categoryCaps(category) {
   return appCaps(categoryLabel(category));
+}
+
+function applyArticleCategoryFilter(query, category) {
+  const normalized = mainCategoryId(category);
+  if (!normalized || normalized === 'all') return query;
+  if (normalized === 'erasitexnhs') return query.in('category', AMATEUR_CATEGORY_IDS);
+  return query.eq('category', normalized);
 }
 
 
@@ -744,7 +798,7 @@ function ArticlePreviewCard({ draft, profile }) {
 
 function BrandMark({ large = false, settings = DEFAULT_SITE_SETTINGS }) {
   const [assetIndex, setAssetIndex] = useState(0);
-  const candidates = [settings?.logo_url, ...BRAND_LOGO_CANDIDATES].filter(Boolean);
+  const candidates = [preferredSiteLogo(settings), ...BRAND_LOGO_CANDIDATES].filter(Boolean);
   const src = candidates[assetIndex] || BRAND_LOGO_CANDIDATES[0];
   return (
     <span className={`crest crest-image ${large ? 'large' : ''}`}>
@@ -1081,7 +1135,7 @@ function Composer({ profile, onCreated, editingArticle = null, onCancelEdit }) {
   const isEditing = Boolean(editingArticle?.id);
   const canEditThis = isEditing ? (profile?.role === 'admin' || editingArticle.author_id === profile?.id) : allowed;
   const [title, setTitle] = useState(editingArticle?.title || '');
-  const [category, setCategory] = useState(editingArticle?.category || 'basketball');
+  const [category, setCategory] = useState(mainCategoryId(editingArticle?.category || 'basketball'));
   const [excerpt, setExcerpt] = useState(editingArticle?.excerpt || '');
   const [content, setContent] = useState(editingArticle?.content || '');
   const [mediaLinks, setMediaLinks] = useState([editingArticle?.video_url, ...safeJsonArray(editingArticle?.media_urls)].filter(Boolean).join('\n'));
@@ -1862,7 +1916,7 @@ function Feed({ profile, settings = DEFAULT_SITE_SETTINGS }) {
       .order('created_at', { ascending: false })
       .limit(50);
 
-    if (filter !== 'all') query = query.eq('category', filter);
+    query = applyArticleCategoryFilter(query, filter);
     const { data, error } = await query;
     if (!error) setPosts(data || []);
     setLoading(false);
@@ -1943,13 +1997,13 @@ function MagazineLogo({ settings = DEFAULT_SITE_SETTINGS }) {
   return (
     <img
       className="magazine-brand-logo"
-      src={MAGAZINE_LOGO}
+      src={preferredSiteLogo(settings, MAGAZINE_LOGO)}
       alt={`${cleanBrandText(settings.site_title, APP_NAME)} logo`}
       loading="eager"
       decoding="async"
       onError={(event) => {
         event.currentTarget.onerror = null;
-        event.currentTarget.src = settings?.logo_url || BRAND_LOGO_CANDIDATES[0];
+        event.currentTarget.src = BRAND_LOGO_CANDIDATES[0];
       }}
     />
   );
@@ -2001,7 +2055,7 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
 
   const openArticle = useCallback((article) => {
     if (!article?.id) return;
-    navigateTo(`/article/${article.id}`);
+    navigateTo(`/v2/article/${article.id}`);
   }, []);
 
   const loadArticles = useCallback(async () => {
@@ -2013,7 +2067,7 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
       .lte('published_at', nowIso)
       .order('published_at', { ascending: false })
       .limit(80);
-    if (category !== 'all') query = query.eq('category', category);
+    query = applyArticleCategoryFilter(query, category);
     const { data } = await query;
     setArticles((data || []).filter(articleIsPublic));
     setActiveSlide(0);
@@ -2025,7 +2079,7 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
       .gt('published_at', nowIso)
       .order('published_at', { ascending: true })
       .limit(1);
-    if (category !== 'all') upcomingQuery = upcomingQuery.eq('category', category);
+    upcomingQuery = applyArticleCategoryFilter(upcomingQuery, category);
     const { data: upcoming } = await upcomingQuery;
     setNextScheduledPublicAt(upcoming?.[0]?.published_at || null);
   }, [category]);
@@ -2186,6 +2240,154 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
   );
 }
 
+
+function MagazineArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = null }) {
+  const [article, setArticle] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [retryAt, setRetryAt] = useState(null);
+
+  const goHome = useCallback(() => {
+    navigateTo('/v2');
+  }, []);
+
+  const loadArticle = useCallback(async () => {
+    if (!articleId) {
+      setError('Article id is missing.');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const { data, error: fetchError } = await supabase
+      .from('articles')
+      .select('*, profiles(handle, display_name, role, chat_color, avatar_url)')
+      .eq('id', articleId)
+      .single();
+
+    if (fetchError || !data) {
+      setError('Το άρθρο δεν υπάρχει ή δεν είναι διαθέσιμο.');
+      setArticle(null);
+      setRetryAt(null);
+      setLoading(false);
+      return;
+    }
+
+    if (!articleIsPublic(data) && !(profile?.role === 'admin' || data.author_id === profile?.id)) {
+      setError(data.status === 'scheduled' && data.published_at
+        ? `Το άρθρο έχει προγραμματιστεί για ${athensFormat(data.published_at)} ώρα Ελλάδας.`
+        : 'Το άρθρο δεν είναι δημόσιο.');
+      setRetryAt(data.status === 'scheduled' ? data.published_at : null);
+      setArticle(null);
+      setLoading(false);
+      return;
+    }
+
+    setArticle(data);
+    setError('');
+    setRetryAt(null);
+    setLoading(false);
+  }, [articleId, profile?.id, profile?.role]);
+
+  useEffect(() => {
+    loadArticle();
+    const channel = supabase
+      .channel(`magazine-article-page-${articleId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'articles', filter: `id=eq.${articleId}` }, loadArticle)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, loadArticle)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [articleId, loadArticle]);
+
+  useEffect(() => {
+    if (!retryAt) return undefined;
+    const delay = Math.max(500, new Date(retryAt).getTime() - Date.now() + 1100);
+    const timer = window.setTimeout(loadArticle, delay);
+    return () => window.clearTimeout(timer);
+  }, [loadArticle, retryAt]);
+
+  const cover = articleCoverUrl(article, settings.hero_url || MAGAZINE_HERO);
+  const title = article?.title || editorialTitle(article?.content || '');
+
+  return (
+    <main className="magazine-page-shell magazine-article-page-shell">
+      <header className="magazine-top-strip">
+        <nav aria-label="Quick links">
+          <button type="button" onClick={goHome}>ΑΡΧΙΚΗ V2</button>
+          <button type="button" onClick={() => navigateTo('/')}>ΚΛΑΣΙΚΗ ΕΚΔΟΣΗ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>ΣΥΝΔΕΣΗ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>CHAT</button>
+        </nav>
+        <div className="magazine-socials" aria-label="Social links">
+          <span>𝕏</span><span>◎</span><span>▶</span><span>♪</span>
+          {profile ? <button type="button" onClick={() => navigateTo('/editor')}>Ο ΛΟΓΑΡΙΑΣΜΟΣ ΜΟΥ</button> : <button type="button" onClick={() => navigateTo('/editor')}>ΜΕΛΟΣ</button>}
+        </div>
+      </header>
+
+      <section className="magazine-hero-brand magazine-article-brand" style={{ '--magazine-hero': `url(${settings.hero_url || MAGAZINE_HERO})` }}>
+        <button className="magazine-brand-block magazine-brand-home" type="button" onClick={goHome} aria-label="Back to v2 homepage">
+          <MagazineLogo settings={settings} />
+          <div>
+            <h1>{cleanBrandText(settings.site_title, APP_NAME)}</h1>
+            <p>Η ΚΟΙΝΟΤΗΤΑ ΤΟΥ ΘΡΥΛΟΥ</p>
+          </div>
+        </button>
+      </section>
+
+      <nav className="magazine-category-nav magazine-article-nav" aria-label="Article categories">
+        <button type="button" onClick={goHome} aria-label="All articles">⌂</button>
+        {ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => (
+          <button key={item.id} className={mainCategoryId(article?.category) === item.id ? 'active' : ''} type="button" onClick={goHome}>
+            {categoryCaps(item.id)}
+          </button>
+        ))}
+      </nav>
+
+      {loading && <div className="magazine-empty-card magazine-article-loading"><span>THRYLOS UNITED</span><h2>Φορτώνει το άρθρο…</h2></div>}
+
+      {!loading && error && (
+        <section className="magazine-empty-card magazine-article-error">
+          <span>THRYLOS UNITED</span>
+          <h2>Δεν βρέθηκε το άρθρο.</h2>
+          <p>{error}</p>
+          <button className="magazine-read-more" type="button" onClick={goHome}>ΕΠΙΣΤΡΟΦΗ ΣΤΗ V2 ΑΡΧΙΚΗ</button>
+        </section>
+      )}
+
+      {!loading && article && (
+        <article className="magazine-article-page-card">
+          {cover && <img className="magazine-article-cover" src={cover} alt="Article cover" loading="eager" decoding="async" fetchPriority="high" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}
+          <div className="magazine-article-page-copy">
+            <span className="magazine-feature-category">{categoryCaps(article.category)}</span>
+            <h1>{title}</h1>
+            <div className="magazine-article-meta">
+              <UserAvatar profile={article.profiles} className="comment-avatar" />
+              <span>Γράφει: <strong>{displayUser(article.profiles)}</strong> · {formatTime(article.published_at || article.created_at)}</span>
+            </div>
+            {article.excerpt && <p className="magazine-article-excerpt">{article.excerpt}</p>}
+            <ArticleContentWithImages content={article.content} images={article.extra_images} />
+            {parseMediaLinks([article.video_url, ...safeJsonArray(article.media_urls)].filter(Boolean).join('\n')).map((url, index) => (
+              <MediaEmbed key={`${url}-${index}`} url={url} />
+            ))}
+            <ArticleSources article={article} />
+          </div>
+        </article>
+      )}
+
+      <footer className="magazine-footer">
+        <div className="magazine-footer-brand">
+          <img src={preferredSiteLogo(settings, MAGAZINE_LOGO)} alt="" loading="lazy" decoding="async" />
+          <span><strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong><small>Η ΚΟΙΝΟΤΗΤΑ ΤΟΥ ΘΡΥΛΟΥ</small></span>
+        </div>
+        <nav>
+          <button type="button" onClick={goHome}>ΟΛΑ ΤΑ ΑΡΘΡΑ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>ΕΠΙΚΟΙΝΩΝΙΑ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>ΔΙΑΦΗΜΙΣΗ</button>
+        </nav>
+      </footer>
+    </main>
+  );
+}
+
 function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
   const [articles, setArticles] = useState([]);
   const [category, setCategory] = useState('all');
@@ -2205,7 +2407,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
       .lte('published_at', nowIso)
       .order('published_at', { ascending: false })
       .limit(60);
-    if (category !== 'all') query = query.eq('category', category);
+    query = applyArticleCategoryFilter(query, category);
     const { data } = await query;
     setArticles((data || []).filter(articleIsPublic));
     setActiveSlide(0);
@@ -2217,7 +2419,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
       .gt('published_at', nowIso)
       .order('published_at', { ascending: true })
       .limit(1);
-    if (category !== 'all') upcomingQuery = upcomingQuery.eq('category', category);
+    upcomingQuery = applyArticleCategoryFilter(upcomingQuery, category);
     const { data: upcoming } = await upcomingQuery;
     setNextScheduledPublicAt(upcoming?.[0]?.published_at || null);
   }, [category]);
@@ -2452,7 +2654,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
         {['all', ...ARTICLE_CATEGORIES.filter((item) => item.id !== 'all').map((item) => item.id)].map((item) => (
           <button
             key={item}
-            className={(article?.category === item || (!article?.category && item === 'all')) ? 'active' : ''}
+            className={(mainCategoryId(article?.category) === item || (!article?.category && item === 'all')) ? 'active' : ''}
             type="button"
             onClick={() => navigateTo('/')}
           >
@@ -2806,7 +3008,7 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
   }
 
   const liveLogoSettings = { ...form, logo_url: logoPreview || form.logo_url };
-  const effectiveLogo = logoPreview || form.logo_url || '/brand/community-crest.svg';
+  const effectiveLogo = logoPreview || preferredSiteLogo(form, MAIN_LOGO);
   const effectiveHero = heroPreview || form.hero_url || BRAND_HERO;
 
   return (
@@ -2844,7 +3046,7 @@ function AdminSiteSettings({ settings, onSettingsChanged, goBack }) {
 
           <label>
             Logo URL
-            <input value={form.logo_url} onChange={(e) => updateField('logo_url', e.target.value)} placeholder="https://... or /brand/olympiacos-logo.png" />
+            <input value={form.logo_url} onChange={(e) => updateField('logo_url', e.target.value)} placeholder="https://... or /brand/thrylos-united-crest-2026.png" />
           </label>
           <div className="button-row split-actions">
             <button className="ghost-btn" type="button" onClick={() => { setLogoFile(null); updateField('logo_url', ''); }}>Use default crest</button>
@@ -4649,7 +4851,7 @@ function PublicArticleHome({ settings = DEFAULT_SITE_SETTINGS, onEnterMembers })
       .lte('published_at', new Date().toISOString())
       .order('published_at', { ascending: false })
       .limit(60);
-    if (category !== 'all') query = query.eq('category', category);
+    query = applyArticleCategoryFilter(query, category);
     const { data } = await query;
     setArticles(data || []);
     setLoading(false);
@@ -4923,8 +5125,10 @@ function App() {
   const [showMemberGate, setShowMemberGate] = useState(new URLSearchParams(window.location.search).has('invite'));
   const rawPath = window.location.pathname.replace(/\/+$/, '');
   const currentPath = rawPath.toLowerCase();
-  const articleMatch = rawPath.match(/^\/article\/([0-9a-fA-F-]{8,})$/);
-  const articleId = articleMatch ? articleMatch[1] : '';
+  const classicArticleMatch = rawPath.match(/^\/article\/([0-9a-fA-F-]{8,})$/);
+  const magazineArticleMatch = rawPath.match(/^\/(?:v2|red-home|magazine)\/article\/([0-9a-fA-F-]{8,})$/);
+  const articleId = (magazineArticleMatch || classicArticleMatch)?.[1] || '';
+  const magazineArticleMode = Boolean(magazineArticleMatch);
   const editorMode = currentPath === '/editor' || currentPath === '/login';
   const publicAltMode = currentPath === '/v2' || currentPath === '/red-home' || currentPath === '/magazine';
 
@@ -4998,6 +5202,7 @@ function App() {
   if (!isConfigured()) return <><PageLoadingBar active={pageSettling} /><SetupNotice settings={siteSettings} /></>;
   if (loading) return <><PageLoadingBar active /><main className="setup-shell"><div className="glass-card loading-card loading-state-card"><span className="loading-spinner" />Loading members area…</div></main></>;
   if (!session || !profile) {
+    if (articleId && magazineArticleMode) return <><PageLoadingBar active={pageSettling} /><MagazineArticlePage settings={siteSettings} articleId={articleId} /></>;
     if (articleId) return <><PageLoadingBar active={pageSettling} /><ArticlePage settings={siteSettings} articleId={articleId} /></>;
     if (publicAltMode) return <><PageLoadingBar active={pageSettling} /><PublicMagazinePage settings={siteSettings} /></>;
     const params = new URLSearchParams(window.location.search);
@@ -5008,6 +5213,7 @@ function App() {
     return <><PageLoadingBar active={pageSettling} /><PublicFrontPage settings={siteSettings} /></>;
   }
 
+  if (articleId && magazineArticleMode) return <><PageLoadingBar active={pageSettling} /><MagazineArticlePage settings={siteSettings} articleId={articleId} profile={profile} /><ChatPanel profile={profile} /></>;
   if (articleId) return <><PageLoadingBar active={pageSettling} /><ArticlePage settings={siteSettings} articleId={articleId} profile={profile} /></>;
   if (publicAltMode) return <><PageLoadingBar active={pageSettling} /><PublicMagazinePage settings={siteSettings} profile={profile} /><ChatPanel profile={profile} /></>;
 
