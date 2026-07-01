@@ -70,12 +70,12 @@ values
   ('community_title', 'Clean red-white community'),
   ('community_text', 'Use the feed for member posts and the floating chat for general talk, private messages and group rooms.'),
   ('footer_text', 'Independent red-white fan project. Add only brand assets you are allowed to use in public/brand/ or from the admin settings page.'),
-  ('logo_url', '/brand/thrylos-united-crest-2026.png'),
+  ('logo_url', '/brand/thrylos-united-crest-2026-transparent-outline.png'),
   ('hero_url', '')
 on conflict (key) do nothing;
 
 update public.site_settings
-set value = '/brand/thrylos-united-crest-2026.png',
+set value = '/brand/thrylos-united-crest-2026-transparent-outline.png',
     updated_at = now()
 where key = 'logo_url'
   and (

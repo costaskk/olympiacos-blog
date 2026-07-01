@@ -611,8 +611,49 @@ function applyArticleCategoryFilter(query, category = '') {
   return values.length === 1 ? query.eq('category', values[0]) : query.in('category', values);
 }
 
+function normalizeArticleTextValue(value) {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeArticleTextValue(item)).filter(Boolean).join('\n\n');
+  }
+  if (typeof value === 'object') {
+    const priority = ['content', 'body', 'text', 'article_text', 'article_body', 'body_text', 'description', 'summary'];
+    return priority.map((key) => normalizeArticleTextValue(value[key])).filter(Boolean).join('\n\n');
+  }
+  return String(value)
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
+    .replace(/<\/?p[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function articleBodyText(article = {}) {
-  return article?.content || article?.body || article?.text || article?.article_text || article?.article_body || '';
+  const candidates = [
+    article?.content,
+    article?.body,
+    article?.text,
+    article?.article_text,
+    article?.article_body,
+    article?.body_text,
+    article?.main_text,
+    article?.full_text,
+    article?.description,
+    article?.summary,
+  ];
+  for (const candidate of candidates) {
+    const text = normalizeArticleTextValue(candidate);
+    if (text) return text;
+  }
+  return normalizeArticleTextValue(article?.excerpt || '');
 }
 
 function magazineCaps(value = '') {
@@ -2091,9 +2132,16 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
     return () => window.clearTimeout(timer);
   }, [loadArticles, nextScheduledPublicAt]);
 
-  const featured = articles.slice(0, 5);
+  const featured = useMemo(() => articles.slice(0, 5), [articles]);
   const current = featured[activeSlide] || featured[0] || articles[0] || null;
-  const latest = articles.slice(0, 8);
+  const latest = useMemo(() => articles.slice(0, 8), [articles]);
+  const featuredCount = featured.length;
+  const goToSlide = useCallback((direction) => {
+    setActiveSlide((value) => {
+      if (featuredCount <= 1) return 0;
+      return (value + direction + featuredCount) % featuredCount;
+    });
+  }, [featuredCount]);
   const allArticleList = [...articles].sort((a, b) => {
     const aTime = new Date(a?.published_at || a?.created_at || 0).getTime() || 0;
     const bTime = new Date(b?.published_at || b?.created_at || 0).getTime() || 0;
@@ -2101,12 +2149,12 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
   });
 
   useEffect(() => {
-    if (featured.length <= 1) return undefined;
+    if (featuredCount <= 1) return undefined;
     const timer = window.setInterval(() => {
-      setActiveSlide((value) => (value + 1) % featured.length);
+      setActiveSlide((value) => (value + 1) % featuredCount);
     }, 6500);
     return () => window.clearInterval(timer);
-  }, [featured.length]);
+  }, [featuredCount]);
 
   const currentImage = articleCoverUrl(current, settings.hero_url || MAGAZINE_HERO);
 
@@ -2121,15 +2169,15 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
     <main className="magazine-page-shell">
       <header className="magazine-top-strip">
         <nav aria-label="Quick links">
-          <button type="button" onClick={() => navigateTo('/')}>ΚΛΑΣΙΚΗ ΕΚΔΟΣΗ</button>
-          <button type="button" onClick={() => navigateTo('/editor')}>ΣΥΝΔΕΣΗ</button>
+          <button type="button" onClick={() => navigateTo('/')}>{appCaps('Κλασική έκδοση')}</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Σύνδεση')}</button>
           <button type="button" onClick={() => navigateTo('/editor')}>CHAT</button>
-          <button type="button" onClick={() => navigateTo('/editor')}>ΦΩΝΗΤΙΚΑ ΔΩΜΑΤΙΑ</button>
-          <button type="button" onClick={() => navigateTo('/editor')}>ΓΙΝΕ ΜΕΛΟΣ</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Φωνητικά δωμάτια')}</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Γίνε μέλος')}</button>
         </nav>
         <div className="magazine-socials" aria-label="Social links">
           <span>𝕏</span><span>◎</span><span>▶</span><span>♪</span>
-          {profile ? <button type="button" onClick={() => navigateTo('/editor')}>Ο ΛΟΓΑΡΙΑΣΜΟΣ ΜΟΥ</button> : <button type="button" onClick={() => navigateTo('/editor')}>ΜΕΛΟΣ</button>}
+          {profile ? <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Ο λογαριασμός μου')}</button> : <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Μέλος')}</button>}
         </div>
       </header>
 
@@ -2138,7 +2186,7 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
           <MagazineLogo settings={settings} />
           <div>
             <h1>{cleanBrandText(settings.site_title, APP_NAME)}</h1>
-            <p>Η ΚΟΙΝΟΤΗΤΑ ΤΟΥ ΘΡΥΛΟΥ</p>
+            <p>{appCaps('Η κοινότητα του Θρύλου')}</p>
           </div>
         </div>
       </section>
@@ -2156,29 +2204,33 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
       {current && (
         <section className="magazine-feature-grid">
           <article className="magazine-feature-card" style={{ '--feature-image': `url(${currentImage})` }}>
-            <button className="magazine-arrow left" type="button" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setActiveSlide((value) => (value - 1 + featured.length) % featured.length); }} aria-label="Previous article">‹</button>
-            <button className="magazine-arrow right" type="button" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setActiveSlide((value) => (value + 1) % featured.length); }} aria-label="Next article">›</button>
+            {featuredCount > 1 && (
+              <>
+                <button className="magazine-arrow left" type="button" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); goToSlide(-1); }} aria-label="Previous article">‹</button>
+                <button className="magazine-arrow right" type="button" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); goToSlide(1); }} aria-label="Next article">›</button>
+              </>
+            )}
             <div className="magazine-feature-copy">
               <span className="magazine-feature-category">{categoryCaps(current.category)}</span>
               <h2>{magazineCaps(current.title || editorialTitle(articleBodyText(current)))}</h2>
               <p>{current.excerpt || String(articleBodyText(current) || '').replace(/\s+/g, ' ').slice(0, 210)}</p>
               <button className="magazine-read-more" type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openArticle(current); }}>ΔΙΑΒΑΣΕ ΠΕΡΙΣΣΟΤΕΡΑ</button>
             </div>
-            {featured.length > 1 && (
+            {featuredCount > 1 && (
               <div className="magazine-dots" aria-label="Featured articles">
-                {featured.map((article, index) => <button key={article.id} className={activeSlide === index ? 'active' : ''} type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setActiveSlide(index); }} aria-label={`Show article ${index + 1}`} />)}
+                {featured.map((article, index) => <button key={article.id} className={activeSlide === index ? 'active' : ''} type="button" onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setActiveSlide(index); }} aria-label={`Show article ${index + 1}`} />)}
               </div>
             )}
           </article>
 
           <aside className="magazine-sidebar-card">
             <div className="magazine-section-head">
-              <h2>ΤΕΛΕΥΤΑΙΑ ΚΕΙΜΕΝΑ</h2>
+              <h2>{appCaps('Τελευταία Κείμενα')}</h2>
             </div>
             <div className="magazine-latest-list">
               {latest.map((post) => <PublicMagazineLatestItem key={post.id} post={post} onOpen={openArticle} />)}
             </div>
-            <button className="magazine-all-link" type="button" onClick={() => document.getElementById('magazine-all-articles')?.scrollIntoView({ behavior: 'smooth' })}>ΟΛΑ ΤΑ ΚΕΙΜΕΝΑ ›</button>
+            <button className="magazine-all-link" type="button" onClick={() => document.getElementById('magazine-all-articles')?.scrollIntoView({ behavior: 'smooth' })}>{appCaps('Όλα τα Κείμενα')} ›</button>
           </aside>
         </section>
       )}
@@ -2186,7 +2238,7 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
       <section id="magazine-all-articles" className="magazine-content-grid">
         <div className="magazine-all-articles">
           <div className="magazine-section-head wide">
-            <h2>ΟΛΑ ΤΑ ΑΡΘΡΑ</h2>
+            <h2>{appCaps('Όλα τα Άρθρα')}</h2>
             <small>{allArticleList.length} άρθρα · ταξινόμηση με βάση την ημερομηνία δημοσίευσης</small>
           </div>
           {allArticleList.length > 0 ? (
@@ -2203,7 +2255,7 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
         </div>
         <aside className="magazine-sponsor-stack">
           <div className="magazine-sponsor-card">
-            <span>ΧΟΡΗΓΟΣ ΕΠΙΚΟΙΝΩΝΙΑΣ</span>
+            <span>{appCaps('Χορηγός επικοινωνίας')}</span>
             <strong>YOUR<br />BRAND</strong>
           </div>
           <div className="magazine-logo-guide-card">
@@ -2217,13 +2269,13 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
       <footer className="magazine-footer">
         <div className="magazine-footer-brand">
           <img src={MAGAZINE_LOGO} alt="" loading="lazy" decoding="async" />
-          <span><strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong><small>Η ΚΟΙΝΟΤΗΤΑ ΤΟΥ ΘΡΥΛΟΥ</small></span>
+          <span><strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong><small>{appCaps('Η κοινότητα του Θρύλου')}</small></span>
         </div>
         <nav>
-          <button type="button" onClick={() => navigateTo('/')}>ΚΛΑΣΙΚΗ ΕΚΔΟΣΗ</button>
-          <button type="button" onClick={() => navigateTo('/editor')}>ΕΠΙΚΟΙΝΩΝΙΑ</button>
-          <button type="button" onClick={() => navigateTo('/editor')}>ΔΙΑΦΗΜΙΣΗ</button>
-          <button type="button" onClick={() => navigateTo('/editor')}>ΟΡΟΙ ΧΡΗΣΗΣ</button>
+          <button type="button" onClick={() => navigateTo('/')}>{appCaps('Κλασική έκδοση')}</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Επικοινωνία')}</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Διαφήμιση')}</button>
+          <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Όροι χρήσης')}</button>
         </nav>
       </footer>
     </main>
@@ -2290,12 +2342,12 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
   const allArticleList = [...articles].sort((a, b) => articleTimestamp(b) - articleTimestamp(a));
 
   useEffect(() => {
-    if (featured.length <= 1) return undefined;
+    if (featuredCount <= 1) return undefined;
     const timer = window.setInterval(() => {
-      setActiveSlide((value) => (value + 1) % featured.length);
+      setActiveSlide((value) => (value + 1) % featuredCount);
     }, 6500);
     return () => window.clearInterval(timer);
-  }, [featured.length]);
+  }, [featuredCount]);
 
   const currentImage = articleCoverUrl(current, settings.hero_url || BRAND_HERO);
 
@@ -2367,7 +2419,7 @@ function PublicFrontPage({ settings = DEFAULT_SITE_SETTINGS, profile = null }) {
                 <UserAvatar profile={current.profiles} className="comment-avatar" />
                 <span>Γράφει: <strong>{displayUser(current.profiles)}</strong><small>{formatTime(current.published_at || current.created_at)}</small></span>
               </div>
-              {featured.length > 1 && (
+              {featuredCount > 1 && (
                 <div className="carousel-dots" aria-label="Featured articles">
                   {featured.map((article, index) => (
                     <button key={article.id} className={activeSlide === index ? 'active' : ''} type="button" onClick={() => setActiveSlide(index)} aria-label={`Show article ${index + 1}`} />
@@ -2471,14 +2523,14 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
       <main className="magazine-page-shell magazine-article-page">
         <header className="magazine-top-strip">
           <nav aria-label="Quick links">
-            <button type="button" onClick={() => navigateTo('/')}>ΚΛΑΣΙΚΗ ΕΚΔΟΣΗ</button>
-            <button type="button" onClick={() => navigateTo('/v2')}>ΑΡΧΙΚΗ V2</button>
-            <button type="button" onClick={() => navigateTo('/editor')}>ΣΥΝΔΕΣΗ</button>
+            <button type="button" onClick={() => navigateTo('/')}>{appCaps('Κλασική έκδοση')}</button>
+            <button type="button" onClick={() => navigateTo('/v2')}>{appCaps('Αρχική V2')}</button>
+            <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Σύνδεση')}</button>
             <button type="button" onClick={() => navigateTo('/editor')}>CHAT</button>
           </nav>
           <div className="magazine-socials" aria-label="Social links">
             <span>𝕏</span><span>◎</span><span>▶</span><span>♪</span>
-            {profile ? <button type="button" onClick={() => navigateTo('/editor')}>Ο ΛΟΓΑΡΙΑΣΜΟΣ ΜΟΥ</button> : <button type="button" onClick={() => navigateTo('/editor')}>ΜΕΛΟΣ</button>}
+            {profile ? <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Ο λογαριασμός μου')}</button> : <button type="button" onClick={() => navigateTo('/editor')}>{appCaps('Μέλος')}</button>}
           </div>
         </header>
 
@@ -2487,7 +2539,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
             <MagazineLogo settings={settings} />
             <span>
               <strong>{cleanBrandText(settings.site_title, APP_NAME)}</strong>
-              <small>Η ΚΟΙΝΟΤΗΤΑ ΤΟΥ ΘΡΥΛΟΥ</small>
+              <small>{appCaps('Η κοινότητα του Θρύλου')}</small>
             </span>
           </button>
         </section>
@@ -2499,7 +2551,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
             <span className="magazine-feature-category">THRYLOS UNITED</span>
             <h1>ΔΕΝ ΒΡΕΘΗΚΕ ΤΟ ΑΡΘΡΟ</h1>
             <p>{error}</p>
-            <button className="magazine-read-more" type="button" onClick={goHome}>ΕΠΙΣΤΡΟΦΗ ΣΤΗΝ ΑΡΧΙΚΗ</button>
+            <button className="magazine-read-more" type="button" onClick={goHome}>{appCaps('Επιστροφή στην αρχική')}</button>
           </section>
         )}
 
@@ -2516,7 +2568,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
                 <span>Γράφει: <strong>{displayUser(article.profiles)}</strong> · {formatTime(article.published_at || article.created_at)}</span>
               </div>
               {article.excerpt && <p className="magazine-article-excerpt">{article.excerpt}</p>}
-              <ArticleContentWithImages content={articleBodyText(article)} images={article.extra_images} />
+              <ArticleContentWithImages content={articleBodyText(article)} images={article.extra_images} fallbackText={article.excerpt || ''} />
               {parseMediaLinks([article.video_url, ...safeJsonArray(article.media_urls)].filter(Boolean).join('\n')).map((url, index) => (
                 <MediaEmbed key={`${url}-${index}`} url={url} />
               ))}
@@ -2590,7 +2642,7 @@ function ArticlePage({ settings = DEFAULT_SITE_SETTINGS, articleId, profile = nu
               <span>Γράφει: <strong>{displayUser(article.profiles)}</strong> · {formatTime(article.published_at || article.created_at)}</span>
             </div>
             {article.excerpt && <p className="article-page-excerpt">{article.excerpt}</p>}
-            <ArticleContentWithImages content={articleBodyText(article)} images={article.extra_images} />
+            <ArticleContentWithImages content={articleBodyText(article)} images={article.extra_images} fallbackText={article.excerpt || ''} />
             {parseMediaLinks([article.video_url, ...safeJsonArray(article.media_urls)].filter(Boolean).join('\n')).map((url, index) => (
               <MediaEmbed key={`${url}-${index}`} url={url} />
             ))}
