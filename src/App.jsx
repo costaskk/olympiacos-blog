@@ -2256,12 +2256,12 @@ function PublicMagazinePage({ settings = DEFAULT_SITE_SETTINGS, profile = null }
         <aside className="magazine-sponsor-stack">
           <div className="magazine-sponsor-card">
             <span>{appCaps('Χορηγός επικοινωνίας')}</span>
-            <strong>YOUR<br />BRAND</strong>
+            <strong>SUPERBET</strong>
           </div>
           <div className="magazine-logo-guide-card">
             <img src={MAGAZINE_LOGO} alt="Thrylos United logo" loading="lazy" decoding="async" />
-            <strong>Νέο red-white λογότυπο</strong>
-            <small>Χρησιμοποιείται μόνο στην εναλλακτική έκδοση. Μπορείς αργότερα να το κάνεις βασικό από τα Site settings.</small>
+            <strong>Η Κοινότητα του θρύλου</strong>
+            <small></small>
           </div>
         </aside>
       </section>
